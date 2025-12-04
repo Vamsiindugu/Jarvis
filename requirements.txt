@@ -1,0 +1,8 @@
+PySide6
+numpy
+opencv-python
+pyaudio
+mss
+google-genai
+python-dotenv
+Pillow

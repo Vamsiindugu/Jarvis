@@ -39,8 +39,10 @@ pya = pyaudio.PyAudio()
 
 
 class AudioLoop:
-    def __init__(self, video_mode=DEFAULT_MODE):
+    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None):
         self.video_mode = video_mode
+        self.on_audio_data = on_audio_data
+        self.on_video_frame = on_video_frame
 
         self.audio_in_queue = None
         self.out_queue = None
@@ -71,6 +73,10 @@ class AudioLoop:
         # OpenCV captures in BGR but PIL expects RGB format
         # This prevents the blue tint in the video feed
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+        if self.on_video_frame:
+            self.on_video_frame(frame_rgb)
+            
         img = PIL.Image.fromarray(frame_rgb)  # Now using RGB frame
         img.thumbnail([1024, 1024])
 
@@ -181,6 +187,8 @@ class AudioLoop:
         )
         while True:
             bytestream = await self.audio_in_queue.get()
+            if self.on_audio_data:
+                self.on_audio_data(bytestream)
             await asyncio.to_thread(stream.write, bytestream)
 
     async def run(self):
