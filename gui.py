@@ -12,12 +12,19 @@ import time
 from datetime import datetime
 from dotenv import load_dotenv
 import mediapipe as mp
+import pyautogui
+import math
+
+# Optimize pyautogui
+pyautogui.FAILSAFE = False
+pyautogui.PAUSE = 0
 
 # PySide6 Imports
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QFrame, QScrollArea, QPushButton,
                              QGraphicsDropShadowEffect, QSizePolicy, QProgressBar)
-from PySide6.QtCore import Qt, QTimer, QPointF, Signal, QSize, QPropertyAnimation, QEasingCurve, QThread, Slot, QObject
+from PySide6.QtCore import (Qt, QTimer, QPointF, Signal, QSize, QPropertyAnimation, 
+                            QEasingCurve, QThread, Slot, QObject, QEvent, QPoint)
 from PySide6.QtGui import (QPainter, QColor, QPen, QRadialGradient, QBrush, 
                          QFont, QLinearGradient, QPainterPath, QGradient, QImage, QPixmap, QPolygonF)
 
@@ -93,6 +100,49 @@ class GuiAudioLoop(ada.AudioLoop):
     def stop(self):
         self.stop_event.set()
 
+class RippleWidget(QWidget):
+    def __init__(self, parent=None, center=QPoint()):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowFlags(Qt.FramelessWindowHint)
+        
+        self.radius = 0
+        self.max_radius = 30
+        self.opacity = 0.8
+        
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.animate)
+        self.timer.start(16) # ~60 fps
+        
+        # Size enough to hold the max radius circle
+        size = self.max_radius * 2 + 10
+        self.resize(size, size)
+        # Center the widget on the click point relative to parent
+        self.move(center.x() - size // 2, center.y() - size // 2)
+        self.show()
+
+    def animate(self):
+        self.radius += 2
+        self.opacity -= 0.05
+        if self.opacity <= 0:
+            self.timer.stop()
+            self.deleteLater()
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        
+        color = QColor(THEME['cyan'])
+        color.setAlphaF(max(0, self.opacity))
+        painter.setBrush(color)
+        
+        # Draw circle at center of widget
+        center = self.rect().center()
+        painter.drawEllipse(center, self.radius, self.radius)
+
 class VideoThread(QThread):
     frame_signal = Signal(object)
     fps_signal = Signal(float)
@@ -110,6 +160,10 @@ class VideoThread(QThread):
         # MediaPipe Hands setup
         mp_hands = mp.solutions.hands
         mp_drawing = mp.solutions.drawing_utils
+        
+        # Screen size for mouse control
+        screen_width, screen_height = pyautogui.size()
+        is_clicking = False
         
         with mp_hands.Hands(
             model_complexity=0,
@@ -139,6 +193,38 @@ class VideoThread(QThread):
                                 hand_landmarks,
                                 mp_hands.HAND_CONNECTIONS
                             )
+                            
+                            # --- Gesture Control ---
+                            # Index Finger Tip (8)
+                            index_tip = hand_landmarks.landmark[8]
+                            # Thumb Tip (4)
+                            thumb_tip = hand_landmarks.landmark[4]
+                            
+                            # Move Mouse (Index Finger)
+                            # Map 0-1 to screen coordinates
+                            # Use a margin to reach edges easier? For now direct mapping.
+                            target_x = int(index_tip.x * screen_width)
+                            target_y = int(index_tip.y * screen_height)
+                            
+                            # Smooth movement could be added here, but direct for responsiveness first
+                            pyautogui.moveTo(target_x, target_y)
+                            
+                            # Click Gesture (Pinch)
+                            # Calculate distance between index tip and thumb tip
+                            # Coordinates are normalized 0-1, so distance is relative
+                            # We can use Euclidean distance
+                            distance = math.sqrt(
+                                (index_tip.x - thumb_tip.x)**2 + 
+                                (index_tip.y - thumb_tip.y)**2
+                            )
+                            
+                            # Threshold for click (experimentally determined, e.g. 0.05)
+                            if distance < 0.05:
+                                if not is_clicking:
+                                    pyautogui.click()
+                                    is_clicking = True
+                            else:
+                                is_clicking = False
 
                     self.frame_signal.emit(frame_rgb)
                 
@@ -209,6 +295,27 @@ class MainWindow(QMainWindow):
 
         # Start Backend
         self.start_backend()
+
+        # Install event filter to capture clicks globally in the app
+        QApplication.instance().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonPress:
+            # Map global position to MainWindow coordinates
+            if isinstance(event, QEvent): # Just to be safe with types
+                # For mouse events, we can get global pos
+                # But event might be generic QEvent if we don't cast, but Python is dynamic.
+                # QMouseEvent has globalPos() or globalPosition() in newer Qt
+                try:
+                    # PySide6 uses globalPosition() which returns QPointF, or globalPos() for QPoint
+                    pos = event.globalPos()
+                    local_pos = self.mapFromGlobal(pos)
+                    
+                    # Create ripple
+                    RippleWidget(self, local_pos)
+                except:
+                    pass
+        return super().eventFilter(obj, event)
 
     def setup_header(self):
         header = QFrame()

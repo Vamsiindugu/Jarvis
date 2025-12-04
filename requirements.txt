@@ -7,3 +7,4 @@ google-genai
 python-dotenv
 Pillow
 mediapipe
+pyautogui
