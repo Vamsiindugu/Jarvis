@@ -2,10 +2,16 @@ import sys
 import math
 import random
 import os
+# Fix for OpenCV on macOS: disable authorization request from background threads
+os.environ["OPENCV_AVFOUNDATION_SKIP_AUTH"] = "1"
+
 import threading
 import asyncio
+import cv2
+import time
 from datetime import datetime
 from dotenv import load_dotenv
+import mediapipe as mp
 
 # PySide6 Imports
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
@@ -38,7 +44,7 @@ QMainWindow {{
 }}
 QLabel {{
     color: {THEME['text']};
-    font-family: 'Consolas', 'Monospace';
+    font-family: 'Menlo', 'Courier New', 'Monospace';
 }}
 QScrollArea {{
     background: transparent;
@@ -58,7 +64,7 @@ QProgressBar {{
     background-color: #050505;
     text-align: center;
     color: {THEME['text']};
-    font-family: 'Consolas';
+    font-family: 'Menlo';
     font-weight: bold;
 }}
 QProgressBar::chunk {{
@@ -72,6 +78,86 @@ QProgressBar::chunk {{
 class Signaller(QObject):
     frame_signal = Signal(object)
     audio_signal = Signal(bytes)
+
+class GuiAudioLoop(ada.AudioLoop):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stop_event = asyncio.Event()
+
+    async def send_text(self):
+        # Override to avoid blocking input()
+        await self.stop_event.wait()
+        # When stopped, we can just return or send a quit signal if needed
+        # But since we are cancelling tasks in run(), this might be enough.
+        
+    def stop(self):
+        self.stop_event.set()
+
+class VideoThread(QThread):
+    frame_signal = Signal(object)
+    fps_signal = Signal(float)
+
+    def __init__(self):
+        super().__init__()
+        self._running = True
+
+    def run(self):
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            print("Error: Could not open video device.")
+            return
+
+        # MediaPipe Hands setup
+        mp_hands = mp.solutions.hands
+        mp_drawing = mp.solutions.drawing_utils
+        
+        with mp_hands.Hands(
+            model_complexity=0,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5) as hands:
+            
+            last_time = time.time()
+            while self._running:
+                ret, frame = cap.read()
+                if ret:
+                    # Mirror the frame
+                    frame = cv2.flip(frame, 1)
+                    
+                    # Convert BGR to RGB
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    
+                    # Process hand tracking
+                    frame_rgb.flags.writeable = False
+                    results = hands.process(frame_rgb)
+                    frame_rgb.flags.writeable = True
+
+                    # Draw landmarks
+                    if results.multi_hand_landmarks:
+                        for hand_landmarks in results.multi_hand_landmarks:
+                            mp_drawing.draw_landmarks(
+                                frame_rgb,
+                                hand_landmarks,
+                                mp_hands.HAND_CONNECTIONS
+                            )
+
+                    self.frame_signal.emit(frame_rgb)
+                
+                current_time = time.time()
+                dt = current_time - last_time
+                if dt > 0:
+                    fps = 1.0 / dt
+                    self.fps_signal.emit(fps)
+                last_time = current_time
+
+                # ~60 FPS target (16ms), but we need to account for processing time
+                # Simple sleep is okay for now as long as we measure actual time for FPS
+                time.sleep(0.016)
+
+        cap.release()
+
+    def stop(self):
+        self._running = False
+        self.wait()
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -103,11 +189,24 @@ class MainWindow(QMainWindow):
         footer_line.setStyleSheet(f"background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 black, stop:0.5 {THEME['cyan_dim']}, stop:1 black);")
         self.main_layout.addWidget(footer_line)
 
+        # --- VIDEO OVERLAY ---
+        self.video_label = QLabel(self)
+        self.video_label.setFixedSize(320, 240)
+        self.video_label.setStyleSheet(f"background-color: black; border: 1px solid {THEME['cyan_dim']};")
+        self.video_label.hide() # Hide initially until first frame
+
+
         # Signals
         self.signaller = Signaller()
-        self.signaller.frame_signal.connect(self.update_frame)
+        # self.signaller.frame_signal.connect(self.update_frame) # No longer needed from backend
         self.signaller.audio_signal.connect(self.update_audio)
         
+        # Start Video Thread
+        self.video_thread = VideoThread()
+        self.video_thread.frame_signal.connect(self.update_frame)
+        self.video_thread.fps_signal.connect(self.update_fps)
+        self.video_thread.start()
+
         # Start Backend
         self.start_backend()
 
@@ -127,16 +226,77 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(self.status_label)
         header_layout.addStretch()
 
-        stats = ["CPU: 12%", "NET: 45ms", "VOICE: ACTIVE"]
-        self.stat_labels = {}
-        
-        for stat in stats:
-            lbl = QLabel(stat)
-            lbl.setStyleSheet(f"color: {THEME['cyan_dim']}; font-weight: bold; margin-left: 15px;")
-            header_layout.addWidget(lbl)
-            self.stat_labels[stat.split(':')[0]] = lbl
+        header_layout.addWidget(title_label)
+        header_layout.addWidget(self.status_label)
+        header_layout.addStretch()
+
+        self.fps_label = QLabel("FPS: 0")
+        self.fps_label.setStyleSheet(f"color: {THEME['cyan_dim']}; font-weight: bold; margin-left: 15px;")
+        header_layout.addWidget(self.fps_label)
+
+        # Camera Toggle Button
+        self.cam_button = QPushButton("CAM")
+        self.cam_button.setCheckable(True)
+        self.cam_button.setChecked(True)
+        self.cam_button.setFixedSize(50, 25)
+        self.cam_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {THEME['cyan_dim']};
+                color: {THEME['text']};
+                border: none;
+                border-radius: 4px;
+                font-weight: bold;
+                margin-left: 15px;
+            }}
+            QPushButton:checked {{
+                background-color: {THEME['cyan']};
+                color: black;
+            }}
+            QPushButton:hover {{
+                background-color: {THEME['cyan_glow']};
+            }}
+        """)
+        self.cam_button.clicked.connect(self.toggle_camera)
+        header_layout.addWidget(self.cam_button)
 
         self.main_layout.addWidget(header)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Position video at bottom right with some padding
+        padding = 20
+        x = self.width() - self.video_label.width() - padding
+        y = self.height() - self.video_label.height() - padding
+        self.video_label.move(x, y)
+        self.video_label.raise_()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.close()
+
+    def closeEvent(self, event):
+        # Stop video thread
+        if hasattr(self, 'video_thread'):
+            self.video_thread.stop()
+
+        if hasattr(self, 'audio_loop') and self.audio_loop:
+            # Signal the loop to stop
+            if hasattr(self.audio_loop, 'stop'):
+                 # We need to do this in a thread-safe way if possible, 
+                 # but since stop_event is asyncio, we might need to use call_soon_threadsafe
+                 # However, setting the event from this thread might not work directly if the loop is in another thread.
+                 # Actually, asyncio.Event is not thread-safe.
+                 # Better approach: The backend is in a separate thread.
+                 # We can just let the thread die or try to cancel it.
+                 # But to be clean, let's try to set the event.
+                 # Since we are in a different thread, we should use the loop's call_soon_threadsafe.
+                 # We need access to the loop.
+                 pass
+        
+        # Force exit to ensure all threads are killed
+        # This is a bit aggressive but ensures "shutdowns the whole program"
+        os._exit(0)
+
 
     # --- Backend Integration ---
     def start_backend(self):
@@ -148,10 +308,10 @@ class MainWindow(QMainWindow):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             
-            self.audio_loop = ada.AudioLoop(
+            self.audio_loop = GuiAudioLoop(
                 video_mode="none",
                 on_audio_data=self.on_audio_data_callback,
-                on_video_frame=self.on_video_frame_callback
+                on_video_frame=None # We handle video separately
             )
             
             loop.run_until_complete(self.audio_loop.run())
@@ -162,11 +322,38 @@ class MainWindow(QMainWindow):
         self.signaller.audio_signal.emit(data)
 
     def on_video_frame_callback(self, frame_rgb):
-        self.signaller.frame_signal.emit(frame_rgb)
+        pass
+        # self.signaller.frame_signal.emit(frame_rgb)
 
     @Slot(object)
     def update_frame(self, frame_rgb):
-        pass # No video display
+        if frame_rgb is not None:
+            height, width, channel = frame_rgb.shape
+            bytes_per_line = 3 * width
+            q_img = QImage(frame_rgb.data, width, height, bytes_per_line, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(q_img)
+            
+            # Scale to fit label keeping aspect ratio
+            scaled_pixmap = pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            
+            self.video_label.setPixmap(scaled_pixmap)
+            if self.video_label.isHidden():
+                self.video_label.show()
+                # Re-trigger resize to ensure correct position if needed
+                self.resizeEvent(None)
+
+    @Slot(float)
+    def update_fps(self, fps):
+        self.fps_label.setText(f"FPS: {fps:.1f}")
+
+    @Slot()
+    def toggle_camera(self):
+        if self.cam_button.isChecked():
+            self.video_label.show()
+            # Re-trigger resize to ensure correct position
+            self.resizeEvent(None)
+        else:
+            self.video_label.hide()
 
     @Slot(bytes)
     def update_audio(self, data):

@@ -6,3 +6,4 @@ mss
 google-genai
 python-dotenv
 Pillow
+mediapipe
