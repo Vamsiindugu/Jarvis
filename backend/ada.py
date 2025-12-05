@@ -21,7 +21,7 @@ if sys.version_info < (3, 11, 0):
     asyncio.TaskGroup = taskgroup.TaskGroup
     asyncio.ExceptionGroup = exceptiongroup.ExceptionGroup
 
-from tools import tools_list, create_project_folder
+from tools import tools_list
 
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
@@ -36,11 +36,25 @@ DEFAULT_MODE = "camera"
 load_dotenv()
 client = genai.Client(http_options={"api_version": "v1beta"}, api_key=os.getenv("GEMINI_API_KEY"))
 
-# tools = [{'google_search': {}}]
+# Function definitions
+generate_cad = {
+    "name": "generate_cad",
+    "description": "Generates a 3D CAD model based on a prompt.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "prompt": {"type": "STRING", "description": "The description of the object to generate."}
+        },
+        "required": ["prompt"]
+    },
+    "behavior": "NON_BLOCKING"
+}
+
+tools = [{'google_search': {}}, {"function_declarations": [generate_cad]}]
 config = types.LiveConnectConfig(
     response_modalities=["AUDIO"],
     system_instruction="You are a helpful assistant named Ada and answer in a friendly tone.",
-    tools=tools_list,
+    tools=tools,
     speech_config=types.SpeechConfig(
         voice_config=types.VoiceConfig(
             prebuilt_voice_config=types.PrebuiltVoiceConfig(
@@ -52,183 +66,79 @@ config = types.LiveConnectConfig(
 
 pya = pyaudio.PyAudio()
 
+from cad_agent import CadAgent
 
 class AudioLoop:
-    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, input_device_index=None, output_device_index=None):
+    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, input_device_index=None, output_device_index=None):
         self.video_mode = video_mode
         self.on_audio_data = on_audio_data
         self.on_video_frame = on_video_frame
+        self.on_cad_data = on_cad_data
         self.input_device_index = input_device_index
         self.output_device_index = output_device_index
 
         self.audio_in_queue = None
         self.out_queue = None
-
-        self.session = None
-
-        self.send_text_task = None
-        self.receive_audio_task = None
-        self.play_audio_task = None
-        self.stop_event = asyncio.Event()
-        self.audio_stream = None
         self.paused = False
 
-    async def wait_for_exit(self):
-        await self.stop_event.wait()
+        self.session = None
+        
+        self.cad_agent = CadAgent()
+
+        self.send_text_task = None
+        self.stop_event = asyncio.Event()
+
+    def set_paused(self, paused):
+        self.paused = paused
 
     def stop(self):
         self.stop_event.set()
-        
-    def set_paused(self, paused):
-        self.paused = paused
-        print(f"Audio paused: {paused}")
 
     async def send_frame(self, frame_data):
-        if self.out_queue:
-            if isinstance(frame_data, bytes):
-                # If it's raw bytes, encode to base64
-                base64_data = base64.b64encode(frame_data).decode('utf-8')
-            else:
-                # Assume it's a base64 string
-                base64_data = frame_data
-                if "," in base64_data:
-                    base64_data = base64_data.split(",")[1]
+        if not self.out_queue:
+            return
+        # frame_data is mostly likely bytes from the frontend blob
+        if isinstance(frame_data, bytes):
+            b64_data = base64.b64encode(frame_data).decode('utf-8')
+        else:
+            b64_data = frame_data # Assume string/b64 already if not bytes
             
-            await self.out_queue.put({"mime_type": "image/jpeg", "data": base64_data})
-
-    def _get_frame(self, cap):
-        # Read the frameq
-        ret, frame = cap.read()
-        # Check if the frame was read successfully
-        if not ret:
-            return None
-        # Fix: Convert BGR to RGB color space
-        # OpenCV captures in BGR but PIL expects RGB format
-        # This prevents the blue tint in the video feed
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        if self.on_video_frame:
-            self.on_video_frame(frame_rgb)
-            
-        img = PIL.Image.fromarray(frame_rgb)  # Now using RGB frame
-        img.thumbnail([1024, 1024])
-
-        image_io = io.BytesIO()
-        img.save(image_io, format="jpeg")
-        image_io.seek(0)
-
-        mime_type = "image/jpeg"
-        image_bytes = image_io.read()
-        return {"mime_type": mime_type, "data": base64.b64encode(image_bytes).decode()}
-
-    async def get_frames(self):
-        # This takes about a second, and will block the whole program
-        # causing the audio pipeline to overflow if you don't to_thread it.
-        cap = await asyncio.to_thread(
-            cv2.VideoCapture, 0
-        )  # 0 represents the default camera
-
-        while True:
-            frame = await asyncio.to_thread(self._get_frame, cap)
-            if frame is None:
-                break
-
-            await asyncio.sleep(1.0)
-
-            await self.out_queue.put(frame)
-
-        # Release the VideoCapture object
-        cap.release()
-
-    def _get_screen(self):
-        sct = mss.mss()
-        monitor = sct.monitors[0]
-
-        i = sct.grab(monitor)
-
-        mime_type = "image/jpeg"
-        image_bytes = mss.tools.to_png(i.rgb, i.size)
-        img = PIL.Image.open(io.BytesIO(image_bytes))
-
-        image_io = io.BytesIO()
-        img.save(image_io, format="jpeg")
-        image_io.seek(0)
-
-        image_bytes = image_io.read()
-        return {"mime_type": mime_type, "data": base64.b64encode(image_bytes).decode()}
-
-    async def get_screen(self):
-
-        while True:
-            frame = await asyncio.to_thread(self._get_screen)
-            if frame is None:
-                break
-
-            await asyncio.sleep(1.0)
-
-            await self.out_queue.put(frame)
+        await self.out_queue.put({"mime_type": "image/jpeg", "data": b64_data})
 
     async def send_realtime(self):
         while True:
             msg = await self.out_queue.get()
-            await self.session.send(input=msg)
+            # await self.session.send(input=msg) # DEPRECATED
+            await self.session.send_realtime_input(inputs=[msg])
 
     async def listen_audio(self):
         mic_info = pya.get_default_input_device_info()
-        device_index = self.input_device_index if self.input_device_index is not None else mic_info["index"]
-        
-        try:
-            # Try default config (1 channel)
-            self.audio_stream = await asyncio.to_thread(
-                pya.open,
-                format=FORMAT,
-                channels=CHANNELS,
-                rate=SEND_SAMPLE_RATE,
-                input=True,
-                input_device_index=device_index,
-                frames_per_buffer=CHUNK_SIZE,
-            )
-        except OSError as e:
-            if "Invalid number of channels" in str(e):
-                print("Mono not supported, trying stereo...")
-                # Try stereo if mono fails
-                self.audio_stream = await asyncio.to_thread(
-                    pya.open,
-                    format=FORMAT,
-                    channels=2,
-                    rate=SEND_SAMPLE_RATE,
-                    input=True,
-                    input_device_index=device_index,
-                    frames_per_buffer=CHUNK_SIZE,
-                )
-            else:
-                raise e
-
+        self.audio_stream = await asyncio.to_thread(
+            pya.open,
+            format=FORMAT,
+            channels=CHANNELS,
+            rate=SEND_SAMPLE_RATE,
+            input=True,
+            input_device_index=self.input_device_index if self.input_device_index is not None else mic_info["index"],
+            frames_per_buffer=CHUNK_SIZE,
+        )
         if __debug__:
             kwargs = {"exception_on_overflow": False}
         else:
             kwargs = {}
-            
+        
         while True:
+            if self.paused:
+                await asyncio.sleep(0.1)
+                continue
+
             try:
                 data = await asyncio.to_thread(self.audio_stream.read, CHUNK_SIZE, **kwargs)
-                
-                if not self.paused:
-                    # If stereo, we might need to downmix or just send as is? 
-                    # Gemini likely expects mono 16kHz. 
-                    # For now, let's just send it. If it's stereo, it's 2x bytes.
+                if self.out_queue:
                     await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
-                else:
-                    # When paused, we just drop the data but keep reading to clear buffer
-                    pass
-                    
-            except RuntimeError as e:
-                if "cannot schedule new futures" in str(e):
-                    break
-                raise
             except Exception as e:
-                print(f"Error in listen_audio: {e}")
-                break
+                print(f"Error reading audio: {e}")
+                await asyncio.sleep(0.1)
 
     async def receive_audio(self):
         "Background task to reads from the websocket and write pcm chunks to the output queue"
@@ -244,26 +154,31 @@ class AudioLoop:
                         print("The tool was called")
                         function_responses = []
                         for fc in response.tool_call.function_calls:
-                            if fc.name == "create_project_folder":
-                                project_name = fc.args["project_name"]
-                                result = create_project_folder(project_name)
+                            if fc.name == "generate_cad":
+                                prompt = fc.args["prompt"]
+                                print(f"Generating CAD for: {prompt}")
+                                
+                                # Call the secondary agent
+                                cad_data = await self.cad_agent.generate_prototype(prompt)
+                                
+                                result_text = "Failed to generate prototype."
+                                if cad_data:
+                                    result_text = "CAD model generated."
+                                    if self.on_cad_data:
+                                        self.on_cad_data(cad_data)
                                 
                                 function_response = types.FunctionResponse(
                                     id=fc.id,
                                     name=fc.name,
-                                    response=result
+                                    response={
+                                        "result": result_text,
+                                        "scheduling": "INTERRUPT"
+                                    }
                                 )
                                 function_responses.append(function_response)
 
                         await self.session.send_tool_response(function_responses=function_responses)
 
-                    # if text := response.text:
-                    #     print(text, end="")
-
-                # If you interrupt the model, it sends a turn_complete.
-                # For interruptions to work, we need to stop playback.
-                # So empty out the audio queue because it may have loaded
-                # much more audio than has played yet.
                 while not self.audio_in_queue.empty():
                     self.audio_in_queue.get_nowait()
         except Exception as e:
@@ -284,6 +199,48 @@ class AudioLoop:
                 self.on_audio_data(bytestream)
             await asyncio.to_thread(stream.write, bytestream)
 
+    async def get_frames(self):
+        # Placeholder if camera mode is handled by frontend sending frames, 
+        # but if this mode is 'camera' AND we want backend to grab frames (unlikely with frontend video feed),
+        # we can implement it. 
+        # However, Ada v2 architecture seems to rely on frontend sending frames for 'camera'.
+        # But 'server.py' sets video_mode="none" by default!
+        # If video_mode is "none", this task isn't started (logic in run()).
+        # server.py calls send_frame explicitly.
+        # So we don't strictly need this unless running standalone.
+        # I'll include the basic version from test.py just in case.
+        cap = await asyncio.to_thread(cv2.VideoCapture, 0)
+        while True:
+            if self.paused:
+                await asyncio.sleep(0.1)
+                continue
+            frame = await asyncio.to_thread(self._get_frame, cap)
+            if frame is None:
+                break
+            await asyncio.sleep(1.0)
+            if self.out_queue:
+                await self.out_queue.put(frame)
+        cap.release()
+
+    def _get_frame(self, cap):
+        ret, frame = cap.read()
+        if not ret:
+            return None
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = PIL.Image.fromarray(frame_rgb)
+        img.thumbnail([1024, 1024])
+        image_io = io.BytesIO()
+        img.save(image_io, format="jpeg")
+        image_io.seek(0)
+        image_bytes = image_io.read()
+        return {"mime_type": "image/jpeg", "data": base64.b64encode(image_bytes).decode()}
+
+    async def _get_screen(self):
+        # Not fully needed given server.py logic but good for completeness
+        pass 
+    async def get_screen(self):
+         pass
+
     async def run(self):
         try:
             async with (
@@ -295,9 +252,9 @@ class AudioLoop:
                 self.audio_in_queue = asyncio.Queue()
                 self.out_queue = asyncio.Queue(maxsize=5)
 
-                self.exit_task = tg.create_task(self.wait_for_exit())
                 tg.create_task(self.send_realtime())
                 tg.create_task(self.listen_audio())
+
                 if self.video_mode == "camera":
                     tg.create_task(self.get_frames())
                 elif self.video_mode == "screen":
@@ -306,8 +263,7 @@ class AudioLoop:
                 tg.create_task(self.receive_audio())
                 tg.create_task(self.play_audio())
 
-                await self.exit_task
-                raise asyncio.CancelledError("User requested exit")
+                await self.stop_event.wait()
 
         except asyncio.CancelledError:
             pass
@@ -319,7 +275,6 @@ class AudioLoop:
             print(f"Run error: {e}")
             if hasattr(self, 'audio_stream') and self.audio_stream:
                 self.audio_stream.close()
-
 
 def get_input_devices():
     p = pyaudio.PyAudio()
@@ -342,7 +297,6 @@ def get_output_devices():
             devices.append((i, p.get_device_info_by_host_api_device_index(0, i).get('name')))
     p.terminate()
     return devices
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

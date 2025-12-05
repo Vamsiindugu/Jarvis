@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 
-const Visualizer = ({ audioData, isListening }) => {
+const Visualizer = ({ audioData, isListening, intensity = 0 }) => {
     const canvasRef = useRef(null);
 
     useEffect(() => {
@@ -15,7 +15,8 @@ const Visualizer = ({ audioData, isListening }) => {
             const height = canvas.height;
             const centerX = width / 2;
             const centerY = height / 2;
-            const radius = 150;
+            // Dynamic Radius: Base 150 + Expansion based on intensity
+            const radius = 150 + (intensity * 40);
 
             ctx.clearRect(0, 0, width, height);
 
@@ -40,39 +41,15 @@ const Visualizer = ({ audioData, isListening }) => {
                 ctx.stroke();
                 ctx.shadowBlur = 0;
             } else {
-                // Active State: Frequency Bars in Circle
-                const bars = 64;
-                const step = (Math.PI * 2) / bars;
-
-                for (let i = 0; i < bars; i++) {
-                    const value = audioData[i % audioData.length] || 0;
-                    const percent = value / 255;
-                    const barHeight = 20 + percent * 100; // Dynamic height
-
-                    const angle = i * step;
-
-                    // Start point (on circle)
-                    const x1 = centerX + Math.cos(angle) * radius;
-                    const y1 = centerY + Math.sin(angle) * radius;
-
-                    // End point (outwards)
-                    const x2 = centerX + Math.cos(angle) * (radius + barHeight);
-                    const y2 = centerY + Math.sin(angle) * (radius + barHeight);
-
-                    ctx.beginPath();
-                    ctx.moveTo(x1, y1);
-                    ctx.lineTo(x2, y2);
-
-                    ctx.strokeStyle = `rgba(34, 211, 238, ${0.5 + percent})`;
-                    ctx.lineWidth = 4;
-                    ctx.lineCap = 'round';
-
-                    ctx.shadowBlur = 15 * percent;
-                    ctx.shadowColor = '#22d3ee';
-
-                    ctx.stroke();
-                    ctx.shadowBlur = 0;
-                }
+                // Active State: Just the Circle causing the pulse (Bars removed)
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(34, 211, 238, 0.8)';
+                ctx.lineWidth = 4;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#22d3ee';
+                ctx.stroke();
+                ctx.shadowBlur = 0;
             }
 
             animationId = requestAnimationFrame(draw);

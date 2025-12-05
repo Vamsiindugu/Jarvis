@@ -47,21 +47,35 @@ async def start_audio(sid, data=None):
         print("Audio loop already running")
         return
 
+
     # Callback to send audio data to frontend
     def on_audio_data(data_bytes):
         # We need to schedule this on the event loop
         # This is high frequency, so we might want to downsample or batch if it's too much
         asyncio.create_task(sio.emit('audio_data', {'data': list(data_bytes)}))
 
+    # Callback to send CAL data to frontend
+    def on_cad_data(data):
+        print(f"Sending CAD data to frontend: {len(data.get('vertices', []))} vertices")
+        asyncio.create_task(sio.emit('cad_data', data))
+
     # Initialize ADA
     try:
         audio_loop = ada.AudioLoop(
             video_mode="none", 
             on_audio_data=on_audio_data,
+            on_cad_data=on_cad_data,
             input_device_index=device_index
         )
+        
+        # Check initial mute state
+        if data and data.get('muted', False):
+            print("Starting with Audio Paused")
+            audio_loop.set_paused(True)
+
         loop_task = asyncio.create_task(audio_loop.run())
         await sio.emit('status', {'msg': 'A.D.A Started'})
+
     except Exception as e:
         print(f"Error starting ADA: {e}")
         await sio.emit('error', {'msg': str(e)})
@@ -96,7 +110,8 @@ async def user_input(sid, data):
     text = data.get('text')
     if text and audio_loop and audio_loop.session:
         print(f"User input: {text}")
-        await audio_loop.session.send(input=text, end_of_turn=True)
+        # await audio_loop.session.send(input=text, end_of_turn=True) # DEPRECATED
+        await audio_loop.session.send_client_content(turns=[{"role": "user", "parts": [{"text": text}]}])
 
 @sio.event
 async def video_frame(sid, data):

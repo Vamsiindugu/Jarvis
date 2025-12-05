@@ -1,8 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
 import io from 'socket.io-client';
+
 import Visualizer from './components/Visualizer';
 import TopAudioBar from './components/TopAudioBar';
-import { Mic, MicOff, Settings, X, Minus, Power, Video, VideoOff, Layout } from 'lucide-react';
+import CadWindow from './components/CadWindow';
+import ChatModule from './components/ChatModule';
+import ToolsModule from './components/ToolsModule';
+import { Mic, MicOff, Settings, X, Minus, Power, Video, VideoOff, Layout, Hand } from 'lucide-react';
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 
 const socket = io('http://localhost:8000');
@@ -10,11 +14,14 @@ const { ipcRenderer } = window.require('electron');
 
 function App() {
     const [status, setStatus] = useState('Disconnected');
-    const [isConnected, setIsConnected] = useState(false); // Power state
-    const [isMuted, setIsMuted] = useState(false); // Mic state
+    const [isConnected, setIsConnected] = useState(true); // Power state DEFAULT ON
+    const [isMuted, setIsMuted] = useState(true); // Mic state DEFAULT MUTED
     const [isVideoOn, setIsVideoOn] = useState(false); // Video state
     const [messages, setMessages] = useState([]);
     const [inputValue, setInputValue] = useState('');
+    const [cadData, setCadData] = useState(null);
+
+    // RESTORED STATE
     const [aiAudioData, setAiAudioData] = useState(new Array(64).fill(0));
     const [micAudioData, setMicAudioData] = useState(new Array(32).fill(0));
     const [fps, setFps] = useState(0);
@@ -28,14 +35,24 @@ function App() {
     const [elementPositions, setElementPositions] = useState({
         video: { x: 40, y: 80 }, // Initial positions (approximate)
         visualizer: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
-        chat: { x: window.innerWidth / 2, y: window.innerHeight - 100 }
+        chat: { x: window.innerWidth / 2, y: window.innerHeight - 100 },
+        cad: { x: window.innerWidth / 2 + 300, y: window.innerHeight / 2 },
+        tools: { x: window.innerWidth / 2, y: window.innerHeight - 30 }
     });
     const [activeDragElement, setActiveDragElement] = useState(null);
 
     // Hand Control State
     const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
     const [isPinching, setIsPinching] = useState(false);
+    const [isHandTrackingEnabled, setIsHandTrackingEnabled] = useState(false); // DEFAULT OFF
+    const [cursorSensitivity, setCursorSensitivity] = useState(2.0);
+
+    // Refs for Loop Access (Avoiding Closure Staleness)
+    const isHandTrackingEnabledRef = useRef(false); // DEFAULT OFF
+    const cursorSensitivityRef = useRef(2.0);
     const handLandmarkerRef = useRef(null);
+    const cursorTrailRef = useRef([]); // Stores last N positions for trail
+    const [ripples, setRipples] = useState([]); // Visual ripples on click
 
     // Web Audio Context for Mic Visualization
     const audioContextRef = useRef(null);
@@ -64,10 +81,62 @@ function App() {
     const snapStateRef = useRef({ isSnapped: false, element: null, snapPos: { x: 0, y: 0 } });
 
     // Update refs when state changes
+    // Update refs when state changes
     useEffect(() => {
         isModularModeRef.current = isModularMode;
         elementPositionsRef.current = elementPositions;
-    }, [isModularMode, elementPositions]);
+        isHandTrackingEnabledRef.current = isHandTrackingEnabled;
+        cursorSensitivityRef.current = cursorSensitivity;
+    }, [isModularMode, elementPositions, isHandTrackingEnabled, cursorSensitivity]);
+
+    // Centering Logic (Startup & Resize)
+    useEffect(() => {
+        const centerElements = () => {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const visualizerHeight = 400; // Match the style height
+            const gap = 30; // Space between visualizer and chat
+
+            setElementPositions(prev => ({
+                ...prev,
+                visualizer: {
+                    x: width / 2,
+                    y: (height / 2) - 180
+                },
+                chat: {
+                    x: width / 2,
+                    y: ((height / 2) - 180) + (visualizerHeight / 2) + gap
+                },
+                tools: {
+                    x: width / 2,
+                    y: height - 100 // Center bottom
+                }
+            }));
+        };
+
+        // Center on mount
+        centerElements();
+
+        // Center on resize
+        window.addEventListener('resize', centerElements);
+        return () => window.removeEventListener('resize', centerElements);
+    }, []);
+
+    // Auto-Connect Model on Start
+    useEffect(() => {
+        if (isConnected) {
+            // Wait brief moment for socket to stabilize/devices to load, then connect
+            const timer = setTimeout(() => {
+                const index = devices.findIndex(d => d.deviceId === selectedDeviceId);
+                socket.emit('start_audio', {
+                    device_index: index >= 0 ? index : null,
+                    muted: isMuted
+                });
+                console.log("Auto-connecting to model...");
+            }, 1000);
+            return () => clearTimeout(timer);
+        }
+    }, [isConnected, devices, selectedDeviceId]); // Re-run if these change, but primarily for initial load
 
     useEffect(() => {
         // Socket IO Setup
@@ -76,6 +145,17 @@ function App() {
         socket.on('status', (data) => addMessage('System', data.msg));
         socket.on('audio_data', (data) => {
             setAiAudioData(data.data);
+        });
+        socket.on('cad_data', (data) => {
+            console.log("Received CAD Data:", data);
+            setCadData(data);
+            // Auto-show the window if it's hidden (optional, but good UX)
+            if (!elementPositions.cad) {
+                setElementPositions(prev => ({
+                    ...prev,
+                    cad: { x: window.innerWidth / 2 + 200, y: window.innerHeight / 2 }
+                }));
+            }
         });
 
         // Get Audio Devices
@@ -235,7 +315,8 @@ function App() {
 
         // 3. Hand Tracking
         let startTimeMs = performance.now();
-        if (handLandmarkerRef.current && videoRef.current.currentTime !== lastVideoTimeRef.current) {
+        // Use Ref for toggle check
+        if (isHandTrackingEnabledRef.current && handLandmarkerRef.current && videoRef.current.currentTime !== lastVideoTimeRef.current) {
             lastVideoTimeRef.current = videoRef.current.currentTime;
             const results = handLandmarkerRef.current.detectForVideo(videoRef.current, startTimeMs);
 
@@ -257,11 +338,22 @@ function App() {
                 // Thumb Tip (4)
                 const thumbTip = landmarks[4];
 
-                // Map to Screen Coords
-                // User requested to flip the cursor movement: "when my hand moves left the cursor moves right flip this"
-                // Previously: (1 - indexTip.x). Now: indexTip.x
-                const targetX = indexTip.x * window.innerWidth;
-                const targetY = indexTip.y * window.innerHeight;
+                // Map to Screen Coords with Sensitivity Scaling
+                // User requested: "when my hand moves left the cursor moves right flip this" -> indexTip.x
+                // Sensitivity: Map center 50% of camera to 100% of screen.
+                const SENSITIVITY = cursorSensitivityRef.current;
+
+                // 1. Normalize and Scale X
+                let normX = (indexTip.x - 0.5) * SENSITIVITY + 0.5;
+                // Clamp to [0, 1]
+                normX = Math.max(0, Math.min(1, normX));
+
+                // 2. Normalize and Scale Y
+                let normY = (indexTip.y - 0.5) * SENSITIVITY + 0.5;
+                normY = Math.max(0, Math.min(1, normY));
+
+                const targetX = normX * window.innerWidth;
+                const targetY = normY * window.innerHeight;
 
                 // 1. Smoothing (Lerp)
                 // Factor 0.2 = smooth but responsive. Lower = smoother/slower.
@@ -284,6 +376,14 @@ function App() {
                     );
 
                     if (dist > UNSNAP_THRESHOLD) {
+                        // REMOVE HIGHLIGHT
+                        if (snapStateRef.current.element) {
+                            snapStateRef.current.element.classList.remove('snap-highlight');
+                            snapStateRef.current.element.style.boxShadow = '';
+                            snapStateRef.current.element.style.backgroundColor = '';
+                            snapStateRef.current.element.style.borderColor = '';
+                        }
+
                         snapStateRef.current = { isSnapped: false, element: null, snapPos: { x: 0, y: 0 } };
                     } else {
                         // Stay snapped
@@ -317,11 +417,20 @@ function App() {
                         };
                         finalX = closest.centerX;
                         finalY = closest.centerY;
+
+                        // SNAP HIGHLIGHT Logic
+                        closest.el.classList.add('snap-highlight');
+                        // Add some inline style for the glow if class isn't enough (using imperative for speed)
+                        closest.el.style.boxShadow = '0 0 20px rgba(34, 211, 238, 0.6)';
+                        closest.el.style.backgroundColor = 'rgba(6, 182, 212, 0.2)';
+                        closest.el.style.borderColor = 'rgba(34, 211, 238, 1)';
                     }
                 }
 
+                // Update Cursor Loop
                 setCursorPos({ x: finalX, y: finalY });
 
+                // Trail Logic: Removed per user request
 
                 // Pinch Detection (Distance between Index and Thumb)
                 const distance = Math.sqrt(
@@ -330,7 +439,11 @@ function App() {
 
                 const isPinchNow = distance < 0.05; // Threshold
                 if (isPinchNow && !isPinching) {
+                    // Click Triggered
                     console.log("Click triggered at", finalX, finalY);
+
+                    // Ripple Effect: Removed per user request
+
                     const el = document.elementFromPoint(finalX, finalY);
                     if (el) {
                         // Find closest clickable element (button, input, etc.)
@@ -363,7 +476,7 @@ function App() {
                     if (isFist) {
                         if (!activeDragElementRef.current) {
                             // Check collision with draggable elements
-                            const elements = ['video', 'visualizer', 'chat'];
+                            const elements = ['video', 'visualizer', 'chat', 'cad', 'tools'];
                             for (const id of elements) {
                                 const el = document.getElementById(id);
                                 if (el) {
@@ -500,26 +613,45 @@ function App() {
         }));
     };
 
+    // Calculate Average Audio Amplitude for Background Pulse
+    const audioAmp = aiAudioData.reduce((a, b) => a + b, 0) / aiAudioData.length / 255;
+
     return (
         <div className="h-screen w-screen bg-black text-cyan-100 font-mono overflow-hidden flex flex-col relative selection:bg-cyan-900 selection:text-white">
-            {/* Hand Cursor */}
-            {isVideoOn && (
+
+            {/* --- PREMIUM UI LAYER --- */}
+
+            {/* --- PREMIUM UI LAYER --- */}
+
+            {/* Hand Cursor - Only show if tracking is enabled */}
+            {isVideoOn && isHandTrackingEnabled && (
                 <div
-                    className={`fixed w-6 h-6 border-2 rounded-full pointer-events-none z-[100] transition-transform duration-75 ${isPinching ? 'bg-cyan-400 border-cyan-400 scale-75' : 'border-cyan-400'}`}
+                    className={`fixed w-6 h-6 border-2 rounded-full pointer-events-none z-[100] transition-transform duration-75 ${isPinching ? 'bg-cyan-400 border-cyan-400 scale-75 shadow-[0_0_15px_rgba(34,211,238,0.8)]' : 'border-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.3)]'}`}
                     style={{
                         left: cursorPos.x,
                         top: cursorPos.y,
                         transform: 'translate(-50%, -50%)'
                     }}
-                />
+                >
+                    {/* Center Dot for precision */}
+                    <div className="absolute top-1/2 left-1/2 w-1 h-1 bg-white rounded-full -translate-x-1/2 -translate-y-1/2" />
+                </div>
             )}
 
-            {/* Background Grid/Effects */}
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-gray-900 via-black to-black opacity-80 z-0 pointer-events-none"></div>
-            <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 z-0 pointer-events-none"></div>
+            {/* Background Grid/Effects - ALIVE BACKGROUND (Fixed: Static opacity) */}
+            <div
+                className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-gray-900 via-black to-black z-0 pointer-events-none"
+                style={{ opacity: 0.6 }}
+            ></div>
+            <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 z-0 pointer-events-none mix-blend-overlay"></div>
+
+            {/* Ambient Glow (Fixed: Static) */}
+            <div
+                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-cyan-900/10 rounded-full blur-[120px] pointer-events-none"
+            />
 
             {/* Top Bar (Draggable) */}
-            <div className="z-50 flex items-center justify-between p-2 border-b border-cyan-900/30 bg-black/80 backdrop-blur-md select-none" style={{ WebkitAppRegion: 'drag' }}>
+            <div className="z-50 flex items-center justify-between p-2 border-b border-cyan-500/20 bg-black/40 backdrop-blur-md select-none sticky top-0" style={{ WebkitAppRegion: 'drag' }}>
                 <div className="flex items-center gap-4 pl-2">
                     <h1 className="text-xl font-bold tracking-[0.2em] text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.5)]">
                         A.D.A
@@ -558,7 +690,10 @@ function App() {
                 {/* Central Visualizer (AI Audio) */}
                 <div
                     id="visualizer"
-                    className={`absolute flex items-center justify-center pointer-events-none transition-all duration-200 ${isModularMode ? (activeDragElement === 'visualizer' ? 'border-2 border-green-500 bg-green-500/20' : 'border-2 border-yellow-500/50 bg-yellow-500/10') + ' rounded-lg' : ''}`}
+                    className={`absolute flex items-center justify-center pointer-events-none transition-all duration-200 
+                        backdrop-blur-xl bg-black/30 border border-white/10 shadow-2xl overflow-visible
+                        ${isModularMode ? (activeDragElement === 'visualizer' ? 'ring-2 ring-green-500 bg-green-500/10' : 'ring-1 ring-yellow-500/30 bg-yellow-500/5') + ' rounded-2xl' : 'rounded-2xl'}
+                    `}
                     style={{
                         left: elementPositions.visualizer.x,
                         top: elementPositions.visualizer.y,
@@ -567,139 +702,124 @@ function App() {
                         height: '400px'
                     }}
                 >
-                    <Visualizer audioData={aiAudioData} isListening={isConnected && !isMuted} />
-                    {isModularMode && <div className={`absolute top-2 right-2 text-xs ${activeDragElement === 'visualizer' ? 'text-green-500' : 'text-yellow-500'}`}>VISUALIZER</div>}
+                    <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
+                    <div className="relative z-20">
+                        <Visualizer audioData={aiAudioData} isListening={isConnected && !isMuted} intensity={audioAmp} />
+                    </div>
+                    {isModularMode && <div className={`absolute top-2 right-2 text-xs font-bold tracking-widest z-20 ${activeDragElement === 'visualizer' ? 'text-green-500' : 'text-yellow-500/50'}`}>VISUALIZER</div>}
                 </div>
 
                 {/* Video Feed Overlay */}
                 <div
                     id="video"
-                    className={`absolute transition-all duration-200 ${isVideoOn ? 'opacity-100' : 'opacity-0 pointer-events-none'} ${isModularMode ? (activeDragElement === 'video' ? 'border-2 border-green-500 bg-green-500/20' : 'border-2 border-yellow-500/50 bg-yellow-500/10') + ' rounded-lg p-2' : ''}`}
+                    className={`absolute transition-all duration-200 
+                        ${isVideoOn ? 'opacity-100' : 'opacity-0 pointer-events-none'} 
+                        backdrop-blur-md bg-black/40 border border-white/10 shadow-xl
+                        ${isModularMode ? (activeDragElement === 'video' ? 'ring-2 ring-green-500' : 'ring-1 ring-yellow-500/30') + ' rounded-xl p-3' : ''}
+                    `}
                     style={{
                         left: elementPositions.video.x,
                         top: elementPositions.video.y,
                     }}
                 >
+                    <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5 pointer-events-none mix-blend-overlay"></div>
                     {/* 16:9 Aspect Ratio Container */}
-                    <div className="relative border border-cyan-500/50 rounded-lg overflow-hidden shadow-[0_0_20px_rgba(6,182,212,0.3)] w-80 aspect-video bg-black">
+                    <div className="relative border border-cyan-500/30 rounded-lg overflow-hidden shadow-[0_0_20px_rgba(6,182,212,0.1)] w-80 aspect-video bg-black/80">
                         {/* Hidden Video Element (Source) */}
                         <video ref={videoRef} autoPlay muted className="absolute inset-0 w-full h-full object-cover opacity-0" />
 
-                        <div className="absolute top-2 left-2 text-[10px] text-cyan-500 bg-black/50 px-1 rounded z-10">CAM_01</div>
+                        <div className="absolute top-2 left-2 text-[10px] text-cyan-400 bg-black/60 backdrop-blur px-2 py-0.5 rounded border border-cyan-500/20 z-10 font-bold tracking-wider">CAM_01</div>
 
                         {/* Canvas for Displaying Video + Skeleton (Ensures overlap) */}
-                        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+                        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full opacity-80" />
                     </div>
-                    {isModularMode && <div className={`absolute -top-6 left-0 text-xs ${activeDragElement === 'video' ? 'text-green-500' : 'text-yellow-500'}`}>VIDEO FEED</div>}
-                </div>
 
-                {/* Settings Modal */}
-                {showSettings && (
-                    <div className="absolute top-20 right-10 bg-black/90 border border-cyan-500/50 p-4 rounded-lg z-50 w-64 backdrop-blur-xl shadow-[0_0_30px_rgba(6,182,212,0.2)]">
-                        <h3 className="text-cyan-400 font-bold mb-2 text-sm uppercase tracking-wider">Audio Input</h3>
-                        <select
-                            value={selectedDeviceId}
-                            onChange={(e) => setSelectedDeviceId(e.target.value)}
-                            className="w-full bg-gray-900 border border-cyan-800 rounded p-2 text-xs text-cyan-100 focus:border-cyan-400 outline-none"
+                    {/* CAD Window Overlay */}
+                    {cadData && (
+                        <div
+                            id="cad"
+                            className={`absolute flex items-center justify-center transition-all duration-200 
+                            backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl overflow-hidden
+                            ${isModularMode ? (activeDragElement === 'cad' ? 'ring-2 ring-green-500 bg-green-500/10' : 'ring-1 ring-cyan-500/30 bg-cyan-500/5') + ' rounded-2xl' : 'rounded-2xl'}
+                        `}
+                            style={{
+                                left: elementPositions.cad?.x || window.innerWidth / 2,
+                                top: elementPositions.cad?.y || window.innerHeight / 2,
+                                transform: 'translate(-50%, -50%)',
+                                width: '500px',
+                                height: '500px',
+                                pointerEvents: 'auto'
+                            }}
                         >
-                            {devices.map((device, i) => (
-                                <option key={device.deviceId} value={device.deviceId}>
-                                    {device.label || `Microphone ${i + 1}`}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                )}
-
-                {/* Chat Overlay */}
-                <div
-                    id="chat"
-                    className={`absolute w-full max-w-2xl px-4 pointer-events-auto transition-all duration-200 ${isModularMode ? (activeDragElement === 'chat' ? 'border-2 border-green-500 bg-green-500/20' : 'border-2 border-yellow-500/50 bg-yellow-500/10') + ' rounded-lg p-4' : ''}`}
-                    style={{
-                        left: elementPositions.chat.x,
-                        top: elementPositions.chat.y,
-                        transform: 'translate(-50%, 0)'
-                    }}
-                >
-                    <div className="flex flex-col gap-2 max-h-60 overflow-y-auto mb-4 scrollbar-hide mask-image-gradient">
-                        {messages.slice(-5).map((msg, i) => (
-                            <div key={i} className="text-sm">
-                                <span className="text-cyan-600">[{msg.time}]</span> <span className="font-bold text-cyan-400">{msg.sender}:</span> {msg.text}
+                            <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
+                            <div className="relative z-20 w-full h-full">
+                                <CadWindow data={cadData} onClose={() => setCadData(null)} />
                             </div>
-                        ))}
-                    </div>
+                            {isModularMode && <div className={`absolute top-2 left-2 text-xs font-bold tracking-widest z-20 ${activeDragElement === 'cad' ? 'text-green-500' : 'text-cyan-500/50'}`}>CAD PROTOTYPE</div>}
+                        </div>
+                    )}
 
-                    <div className="flex gap-2">
-                        <input
-                            type="text"
-                            value={inputValue}
-                            onChange={(e) => setInputValue(e.target.value)}
-                            onKeyDown={handleSend}
-                            placeholder="ENTER COMMAND..."
-                            className="flex-1 bg-black/50 border border-cyan-800 rounded p-3 text-cyan-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all placeholder-cyan-800"
-                        />
-                    </div>
-                    {isModularMode && <div className={`absolute -top-6 left-0 text-xs ${activeDragElement === 'chat' ? 'text-green-500' : 'text-yellow-500'}`}>CHAT MODULE</div>}
+                    {/* Settings Modal */}
+                    {showSettings && (
+                        <div className="absolute top-20 right-10 bg-black/90 border border-cyan-500/50 p-4 rounded-lg z-50 w-64 backdrop-blur-xl shadow-[0_0_30px_rgba(6,182,212,0.2)]">
+                            <h3 className="text-cyan-400 font-bold mb-2 text-sm uppercase tracking-wider">Audio Input</h3>
+                            <select
+                                value={selectedDeviceId}
+                                onChange={(e) => setSelectedDeviceId(e.target.value)}
+                                className="w-full bg-gray-900 border border-cyan-800 rounded p-2 text-xs text-cyan-100 focus:border-cyan-400 outline-none mb-4"
+                            >
+                                {devices.map((device, i) => (
+                                    <option key={device.deviceId} value={device.deviceId}>
+                                        {device.label || `Microphone ${i + 1}`}
+                                    </option>
+                                ))}
+                            </select>
+
+                            <h3 className="text-cyan-400 font-bold mb-2 text-sm uppercase tracking-wider">Cursor Sensitivity: {cursorSensitivity}x</h3>
+                            <input
+                                type="range"
+                                min="1.0"
+                                max="5.0"
+                                step="0.1"
+                                value={cursorSensitivity}
+                                onChange={(e) => setCursorSensitivity(parseFloat(e.target.value))}
+                                className="w-full accent-cyan-400 cursor-pointer"
+                            />
+                        </div>
+                    )}
+
                 </div>
-            </div>
 
-            {/* Footer Controls */}
-            <div className="z-20 p-6 flex justify-center gap-6 pb-10">
-                {/* Power Button */}
-                <button
-                    onClick={togglePower}
-                    className={`p-4 rounded-full border-2 transition-all duration-300 ${isConnected
-                        ? 'border-green-500 bg-green-500/10 text-green-500 hover:bg-green-500/20 shadow-[0_0_20px_rgba(34,197,94,0.3)]'
-                        : 'border-gray-600 bg-gray-600/10 text-gray-500 hover:bg-gray-600/20'
-                        }`}
-                >
-                    <Power size={32} />
-                </button>
+                {/* Chat Module */}
+                <ChatModule
+                    messages={messages}
+                    inputValue={inputValue}
+                    setInputValue={setInputValue}
+                    handleSend={handleSend}
+                    isModularMode={isModularMode}
+                    activeDragElement={activeDragElement}
+                    position={elementPositions.chat}
+                />
 
-                {/* Mute Button */}
-                <button
-                    onClick={toggleMute}
-                    disabled={!isConnected}
-                    className={`p-4 rounded-full border-2 transition-all duration-300 ${!isConnected
-                        ? 'border-gray-800 text-gray-800 cursor-not-allowed'
-                        : isMuted
-                            ? 'border-red-500 bg-red-500/10 text-red-500 hover:bg-red-500/20 shadow-[0_0_20px_rgba(239,68,68,0.3)]'
-                            : 'border-cyan-500 bg-cyan-500/10 text-cyan-500 hover:bg-cyan-500/20 shadow-[0_0_20px_rgba(6,182,212,0.3)]'
-                        }`}
-                >
-                    {isMuted ? <MicOff size={32} /> : <Mic size={32} />}
-                </button>
-
-                {/* Video Button */}
-                <button
-                    onClick={toggleVideo}
-                    className={`p-4 rounded-full border-2 transition-all duration-300 ${isVideoOn
-                        ? 'border-purple-500 bg-purple-500/10 text-purple-500 hover:bg-purple-500/20 shadow-[0_0_20px_rgba(168,85,247,0.3)]'
-                        : 'border-cyan-900 text-cyan-700 hover:border-cyan-500 hover:text-cyan-500'
-                        }`}
-                >
-                    {isVideoOn ? <Video size={32} /> : <VideoOff size={32} />}
-                </button>
-
-                {/* Settings Button */}
-                <button
-                    onClick={() => setShowSettings(!showSettings)}
-                    className={`p-4 rounded-full border-2 transition-all ${showSettings ? 'border-cyan-400 text-cyan-400 bg-cyan-900/20' : 'border-cyan-900 text-cyan-700 hover:border-cyan-500 hover:text-cyan-500'
-                        }`}
-                >
-                    <Settings size={32} />
-                </button>
-
-                {/* Layout Button */}
-                <button
-                    onClick={() => setIsModularMode(!isModularMode)}
-                    className={`p-4 rounded-full border-2 transition-all duration-300 ${isModularMode
-                        ? 'border-yellow-500 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 shadow-[0_0_20px_rgba(234,179,8,0.3)]'
-                        : 'border-cyan-900 text-cyan-700 hover:border-cyan-500 hover:text-cyan-500'
-                        }`}
-                >
-                    <Layout size={32} />
-                </button>
+                {/* Footer Controls / Tools Module */}
+                <div className="z-20 flex justify-center pb-10 pointer-events-none">
+                    <ToolsModule
+                        isConnected={isConnected}
+                        isMuted={isMuted}
+                        isVideoOn={isVideoOn}
+                        isModularMode={isModularMode}
+                        isHandTrackingEnabled={isHandTrackingEnabled}
+                        showSettings={showSettings}
+                        onTogglePower={togglePower}
+                        onToggleMute={toggleMute}
+                        onToggleVideo={toggleVideo}
+                        onToggleSettings={() => setShowSettings(!showSettings)}
+                        onToggleLayout={() => setIsModularMode(!isModularMode)}
+                        onToggleHand={() => setIsHandTrackingEnabled(!isHandTrackingEnabled)}
+                        activeDragElement={activeDragElement}
+                        position={elementPositions.tools}
+                    />
+                </div>
             </div>
         </div>
     );
