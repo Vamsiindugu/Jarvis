@@ -2,22 +2,31 @@ import React, { useEffect, useState, useRef } from 'react';
 import io from 'socket.io-client';
 import Visualizer from './components/Visualizer';
 import TopAudioBar from './components/TopAudioBar';
-import { Mic, MicOff, Settings, X, Minus } from 'lucide-react';
+import { Mic, MicOff, Settings, X, Minus, Power, Video, VideoOff } from 'lucide-react';
+import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 
 const socket = io('http://localhost:8000');
 const { ipcRenderer } = window.require('electron');
 
 function App() {
     const [status, setStatus] = useState('Disconnected');
-    const [isListening, setIsListening] = useState(false);
+    const [isConnected, setIsConnected] = useState(false); // Power state
+    const [isMuted, setIsMuted] = useState(false); // Mic state
+    const [isVideoOn, setIsVideoOn] = useState(false); // Video state
     const [messages, setMessages] = useState([]);
     const [inputValue, setInputValue] = useState('');
     const [aiAudioData, setAiAudioData] = useState(new Array(64).fill(0));
     const [micAudioData, setMicAudioData] = useState(new Array(32).fill(0));
+    const [fps, setFps] = useState(0);
 
     const [devices, setDevices] = useState([]);
     const [selectedDeviceId, setSelectedDeviceId] = useState('');
     const [showSettings, setShowSettings] = useState(false);
+
+    // Hand Control State
+    const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
+    const [isPinching, setIsPinching] = useState(false);
+    const handLandmarkerRef = useRef(null);
 
     // Web Audio Context for Mic Visualization
     const audioContextRef = useRef(null);
@@ -25,13 +34,23 @@ function App() {
     const sourceRef = useRef(null);
     const animationFrameRef = useRef(null);
 
+    // Video Refs
+    const videoRef = useRef(null);
+    const canvasRef = useRef(null);
+    const videoIntervalRef = useRef(null);
+    const lastFrameTimeRef = useRef(0);
+    const frameCountRef = useRef(0);
+    const lastVideoTimeRef = useRef(-1);
+
+    // Ref to track video state for the loop (avoids closure staleness)
+    const isVideoOnRef = useRef(false);
+
     useEffect(() => {
         // Socket IO Setup
         socket.on('connect', () => setStatus('Connected'));
         socket.on('disconnect', () => setStatus('Disconnected'));
         socket.on('status', (data) => addMessage('System', data.msg));
         socket.on('audio_data', (data) => {
-            // AI Audio Data (from Backend)
             setAiAudioData(data.data);
         });
 
@@ -42,12 +61,53 @@ function App() {
             if (audioInputs.length > 0) setSelectedDeviceId(audioInputs[0].deviceId);
         });
 
+        // Initialize Hand Landmarker
+        const initHandLandmarker = async () => {
+            try {
+                console.log("Initializing HandLandmarker...");
+
+                // 1. Verify Model File
+                console.log("Fetching model file...");
+                const response = await fetch('/hand_landmarker.task');
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch model: ${response.status} ${response.statusText}`);
+                }
+                console.log("Model file found:", response.headers.get('content-type'), response.headers.get('content-length'));
+
+                // 2. Initialize Vision
+                console.log("Initializing FilesetResolver...");
+                const vision = await FilesetResolver.forVisionTasks(
+                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+                );
+                console.log("FilesetResolver initialized.");
+
+                // 3. Create Landmarker
+                console.log("Creating HandLandmarker (CPU)...");
+                handLandmarkerRef.current = await HandLandmarker.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: `/hand_landmarker.task`,
+                        delegate: "CPU" // Force CPU to avoid GPU context issues
+                    },
+                    runningMode: "VIDEO",
+                    numHands: 1
+                });
+                console.log("HandLandmarker initialized successfully!");
+                addMessage('System', 'Hand Tracking Ready');
+
+            } catch (error) {
+                console.error("Failed to initialize HandLandmarker:", error);
+                addMessage('System', `Hand Tracking Error: ${error.message}`);
+            }
+        };
+        initHandLandmarker();
+
         return () => {
             socket.off('connect');
             socket.off('disconnect');
             socket.off('status');
             socket.off('audio_data');
             stopMicVisualizer();
+            stopVideo();
         };
     }, []);
 
@@ -92,21 +152,182 @@ function App() {
         if (audioContextRef.current) audioContextRef.current.close();
     };
 
+    const startVideo = async () => {
+        try {
+            // Request 16:9 aspect ratio
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { aspectRatio: 16 / 9, width: { ideal: 1280 } } });
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                videoRef.current.play();
+            }
+
+            setIsVideoOn(true);
+            isVideoOnRef.current = true; // Update ref for loop
+
+            console.log("Starting video loop...");
+            requestAnimationFrame(predictWebcam);
+
+        } catch (err) {
+            console.error("Error accessing camera:", err);
+            addMessage('System', 'Error accessing camera');
+        }
+    };
+
+    const predictWebcam = () => {
+        // Use ref for checking state to avoid closure staleness
+        if (!videoRef.current || !canvasRef.current || !isVideoOnRef.current) {
+            return;
+        }
+
+        // Check if video has valid dimensions to prevent MediaPipe crash
+        if (videoRef.current.readyState < 2 || videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0) {
+            requestAnimationFrame(predictWebcam);
+            return;
+        }
+
+        // 1. Draw Video to Canvas
+        const ctx = canvasRef.current.getContext('2d');
+
+        // Ensure canvas matches video dimensions
+        if (canvasRef.current.width !== videoRef.current.videoWidth || canvasRef.current.height !== videoRef.current.videoHeight) {
+            canvasRef.current.width = videoRef.current.videoWidth;
+            canvasRef.current.height = videoRef.current.videoHeight;
+        }
+
+        ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
+
+        // 2. Send Frame to Backend (Throttled)
+        // Only send if connected
+        if (isConnected) {
+            // Simple throttle: every 5th frame roughly
+            if (frameCountRef.current % 5 === 0) {
+                const base64Data = canvasRef.current.toDataURL('image/jpeg', 0.5);
+                socket.emit('video_frame', { image: base64Data });
+            }
+        }
+
+        // 3. Hand Tracking
+        let startTimeMs = performance.now();
+        if (handLandmarkerRef.current && videoRef.current.currentTime !== lastVideoTimeRef.current) {
+            lastVideoTimeRef.current = videoRef.current.currentTime;
+            const results = handLandmarkerRef.current.detectForVideo(videoRef.current, startTimeMs);
+
+            // Log every 100 frames to confirm loop is running
+            if (frameCountRef.current % 100 === 0) {
+                console.log("Tracking loop running... Last result:", results.landmarks.length > 0 ? "Hand Found" : "No Hand");
+            }
+
+            if (results.landmarks && results.landmarks.length > 0) {
+                const landmarks = results.landmarks[0];
+
+                // Log on first detection
+                if (cursorPos.x === 0 && cursorPos.y === 0) {
+                    console.log("First hand detection!", landmarks);
+                }
+
+                // Index Finger Tip (8)
+                const indexTip = landmarks[8];
+                // Thumb Tip (4)
+                const thumbTip = landmarks[4];
+
+                // Map to Screen Coords
+                // User requested to flip the cursor movement: "when my hand moves left the cursor moves right flip this"
+                // Previously: (1 - indexTip.x). Now: indexTip.x
+                const x = indexTip.x * window.innerWidth;
+                const y = indexTip.y * window.innerHeight;
+                setCursorPos({ x, y });
+
+                // Pinch Detection (Distance between Index and Thumb)
+                const distance = Math.sqrt(
+                    Math.pow(indexTip.x - thumbTip.x, 2) + Math.pow(indexTip.y - thumbTip.y, 2)
+                );
+
+                const isPinchNow = distance < 0.05; // Threshold
+                if (isPinchNow && !isPinching) {
+                    console.log("Click triggered at", x, y);
+                    document.elementFromPoint(x, y)?.click();
+                }
+                setIsPinching(isPinchNow);
+
+                // Draw Skeleton
+                drawSkeleton(ctx, landmarks);
+            }
+        }
+
+        // 4. FPS Calculation
+        const now = performance.now();
+        frameCountRef.current++;
+        if (now - lastFrameTimeRef.current >= 1000) {
+            setFps(frameCountRef.current);
+            frameCountRef.current = 0;
+            lastFrameTimeRef.current = now;
+        }
+
+        if (isVideoOnRef.current) {
+            requestAnimationFrame(predictWebcam);
+        }
+    };
+
+    const drawSkeleton = (ctx, landmarks) => {
+        ctx.strokeStyle = '#00FFFF';
+        ctx.lineWidth = 2;
+
+        // Connections
+        const connections = HandLandmarker.HAND_CONNECTIONS;
+        for (const connection of connections) {
+            const start = landmarks[connection.start];
+            const end = landmarks[connection.end];
+            ctx.beginPath();
+            ctx.moveTo(start.x * canvasRef.current.width, start.y * canvasRef.current.height);
+            ctx.lineTo(end.x * canvasRef.current.width, end.y * canvasRef.current.height);
+            ctx.stroke();
+        }
+    };
+
+    const stopVideo = () => {
+        if (videoRef.current && videoRef.current.srcObject) {
+            videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+            videoRef.current.srcObject = null;
+        }
+        setIsVideoOn(false);
+        isVideoOnRef.current = false; // Update ref
+        setFps(0);
+    };
+
+    const toggleVideo = () => {
+        if (isVideoOn) {
+            stopVideo();
+        } else {
+            startVideo();
+        }
+    };
+
     const addMessage = (sender, text) => {
         setMessages(prev => [...prev, { sender, text, time: new Date().toLocaleTimeString() }]);
     };
 
-    const toggleAudio = () => {
-        if (isListening) {
+    const togglePower = () => {
+        if (isConnected) {
             socket.emit('stop_audio');
-            setIsListening(false);
+            setIsConnected(false);
+            setIsMuted(false); // Reset mute state
         } else {
-            // Find index of selected device to send to backend
-            // Note: Backend uses PyAudio index, Frontend uses DeviceID. 
-            // This is tricky. For now, we might just send the index in the list.
             const index = devices.findIndex(d => d.deviceId === selectedDeviceId);
             socket.emit('start_audio', { device_index: index >= 0 ? index : null });
-            setIsListening(true);
+            setIsConnected(true);
+            setIsMuted(false); // Start unmuted
+        }
+    };
+
+    const toggleMute = () => {
+        if (!isConnected) return; // Can't mute if not connected
+
+        if (isMuted) {
+            socket.emit('resume_audio');
+            setIsMuted(false);
+        } else {
+            socket.emit('pause_audio');
+            setIsMuted(true);
         }
     };
 
@@ -124,6 +345,18 @@ function App() {
 
     return (
         <div className="h-screen w-screen bg-black text-cyan-100 font-mono overflow-hidden flex flex-col relative selection:bg-cyan-900 selection:text-white">
+            {/* Hand Cursor */}
+            {isVideoOn && (
+                <div
+                    className={`fixed w-6 h-6 border-2 rounded-full pointer-events-none z-[100] transition-transform duration-75 ${isPinching ? 'bg-cyan-400 border-cyan-400 scale-75' : 'border-cyan-400'}`}
+                    style={{
+                        left: cursorPos.x,
+                        top: cursorPos.y,
+                        transform: 'translate(-50%, -50%)'
+                    }}
+                />
+            )}
+
             {/* Background Grid/Effects */}
             <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-gray-900 via-black to-black opacity-80 z-0 pointer-events-none"></div>
             <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 z-0 pointer-events-none"></div>
@@ -137,6 +370,12 @@ function App() {
                     <div className="text-[10px] text-cyan-700 border border-cyan-900 px-1 rounded">
                         V2.0.0
                     </div>
+                    {/* FPS Counter */}
+                    {isVideoOn && (
+                        <div className="text-[10px] text-green-500 border border-green-900 px-1 rounded ml-2">
+                            FPS: {fps}
+                        </div>
+                    )}
                 </div>
 
                 {/* Top Visualizer (User Mic) */}
@@ -161,7 +400,21 @@ function App() {
             <div className="flex-1 relative z-10 flex flex-col items-center justify-center">
                 {/* Central Visualizer (AI Audio) */}
                 <div className="w-full h-full absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <Visualizer audioData={aiAudioData} isListening={isListening} />
+                    <Visualizer audioData={aiAudioData} isListening={isConnected && !isMuted} />
+                </div>
+
+                {/* Video Feed Overlay */}
+                <div className={`absolute top-20 left-10 transition-opacity duration-500 ${isVideoOn ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                    {/* 16:9 Aspect Ratio Container */}
+                    <div className="relative border border-cyan-500/50 rounded-lg overflow-hidden shadow-[0_0_20px_rgba(6,182,212,0.3)] w-80 aspect-video bg-black">
+                        {/* Hidden Video Element (Source) */}
+                        <video ref={videoRef} autoPlay muted className="absolute inset-0 w-full h-full object-cover opacity-0" />
+
+                        <div className="absolute top-2 left-2 text-[10px] text-cyan-500 bg-black/50 px-1 rounded z-10">CAM_01</div>
+
+                        {/* Canvas for Displaying Video + Skeleton (Ensures overlap) */}
+                        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+                    </div>
                 </div>
 
                 {/* Settings Modal */}
@@ -207,16 +460,43 @@ function App() {
 
             {/* Footer Controls */}
             <div className="z-20 p-6 flex justify-center gap-6 pb-10">
+                {/* Power Button */}
                 <button
-                    onClick={toggleAudio}
-                    className={`p-4 rounded-full border-2 transition-all duration-300 ${isListening
+                    onClick={togglePower}
+                    className={`p-4 rounded-full border-2 transition-all duration-300 ${isConnected
+                        ? 'border-green-500 bg-green-500/10 text-green-500 hover:bg-green-500/20 shadow-[0_0_20px_rgba(34,197,94,0.3)]'
+                        : 'border-gray-600 bg-gray-600/10 text-gray-500 hover:bg-gray-600/20'
+                        }`}
+                >
+                    <Power size={32} />
+                </button>
+
+                {/* Mute Button */}
+                <button
+                    onClick={toggleMute}
+                    disabled={!isConnected}
+                    className={`p-4 rounded-full border-2 transition-all duration-300 ${!isConnected
+                        ? 'border-gray-800 text-gray-800 cursor-not-allowed'
+                        : isMuted
                             ? 'border-red-500 bg-red-500/10 text-red-500 hover:bg-red-500/20 shadow-[0_0_20px_rgba(239,68,68,0.3)]'
                             : 'border-cyan-500 bg-cyan-500/10 text-cyan-500 hover:bg-cyan-500/20 shadow-[0_0_20px_rgba(6,182,212,0.3)]'
                         }`}
                 >
-                    {isListening ? <MicOff size={32} /> : <Mic size={32} />}
+                    {isMuted ? <MicOff size={32} /> : <Mic size={32} />}
                 </button>
 
+                {/* Video Button */}
+                <button
+                    onClick={toggleVideo}
+                    className={`p-4 rounded-full border-2 transition-all duration-300 ${isVideoOn
+                        ? 'border-purple-500 bg-purple-500/10 text-purple-500 hover:bg-purple-500/20 shadow-[0_0_20px_rgba(168,85,247,0.3)]'
+                        : 'border-cyan-900 text-cyan-700 hover:border-cyan-500 hover:text-cyan-500'
+                        }`}
+                >
+                    {isVideoOn ? <Video size={32} /> : <VideoOff size={32} />}
+                </button>
+
+                {/* Settings Button */}
                 <button
                     onClick={() => setShowSettings(!showSettings)}
                     className={`p-4 rounded-full border-2 transition-all ${showSettings ? 'border-cyan-400 text-cyan-400 bg-cyan-900/20' : 'border-cyan-900 text-cyan-700 hover:border-cyan-500 hover:text-cyan-500'

@@ -70,13 +70,26 @@ async def start_audio(sid, data=None):
 async def stop_audio(sid):
     global audio_loop
     if audio_loop:
-        # We need to implement a stop method in ADA
         audio_loop.stop() 
         print("Stopping Audio Loop")
-        # For now, we just kill the task? No, that's bad.
-        # We will implement a stop flag in ada.py
         audio_loop = None
-        pass
+        await sio.emit('status', {'msg': 'A.D.A Stopped'})
+
+@sio.event
+async def pause_audio(sid):
+    global audio_loop
+    if audio_loop:
+        audio_loop.set_paused(True)
+        print("Pausing Audio")
+        await sio.emit('status', {'msg': 'Audio Paused'})
+
+@sio.event
+async def resume_audio(sid):
+    global audio_loop
+    if audio_loop:
+        audio_loop.set_paused(False)
+        print("Resuming Audio")
+        await sio.emit('status', {'msg': 'Audio Resumed'})
 
 @sio.event
 async def user_input(sid, data):
@@ -84,6 +97,15 @@ async def user_input(sid, data):
     if text and audio_loop and audio_loop.session:
         print(f"User input: {text}")
         await audio_loop.session.send(input=text, end_of_turn=True)
+
+@sio.event
+async def video_frame(sid, data):
+    # data should contain 'image' which is base64 encoded
+    image_data = data.get('image')
+    if image_data and audio_loop:
+        # We don't await this because we don't want to block the socket handler
+        # But send_frame is async, so we create a task
+        asyncio.create_task(audio_loop.send_frame(image_data))
 
 if __name__ == "__main__":
     uvicorn.run(app_socketio, host="127.0.0.1", port=8000)

@@ -71,12 +71,24 @@ class AudioLoop:
         self.play_audio_task = None
         self.stop_event = asyncio.Event()
         self.audio_stream = None
+        self.paused = False
 
     async def wait_for_exit(self):
         await self.stop_event.wait()
 
     def stop(self):
         self.stop_event.set()
+        
+    def set_paused(self, paused):
+        self.paused = paused
+        print(f"Audio paused: {paused}")
+
+    async def send_frame(self, base64_data):
+        if self.out_queue:
+            # We assume base64_data is the raw base64 string (without data:image/jpeg;base64, prefix if possible, or we strip it)
+            if "," in base64_data:
+                base64_data = base64_data.split(",")[1]
+            await self.out_queue.put({"mime_type": "image/jpeg", "data": base64_data})
 
     def _get_frame(self, cap):
         # Read the frameq
@@ -194,10 +206,16 @@ class AudioLoop:
         while True:
             try:
                 data = await asyncio.to_thread(self.audio_stream.read, CHUNK_SIZE, **kwargs)
-                # If stereo, we might need to downmix or just send as is? 
-                # Gemini likely expects mono 16kHz. 
-                # For now, let's just send it. If it's stereo, it's 2x bytes.
-                await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
+                
+                if not self.paused:
+                    # If stereo, we might need to downmix or just send as is? 
+                    # Gemini likely expects mono 16kHz. 
+                    # For now, let's just send it. If it's stereo, it's 2x bytes.
+                    await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
+                else:
+                    # When paused, we just drop the data but keep reading to clear buffer
+                    pass
+                    
             except RuntimeError as e:
                 if "cannot schedule new futures" in str(e):
                     break
