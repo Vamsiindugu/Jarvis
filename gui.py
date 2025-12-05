@@ -174,8 +174,7 @@ class VideoThread(QThread):
             while self._running:
                 ret, frame = cap.read()
                 if ret:
-                    # Mirror the frame
-                    frame = cv2.flip(frame, 1)
+
                     
                     # Convert BGR to RGB
                     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

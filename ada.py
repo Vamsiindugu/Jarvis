@@ -9,6 +9,7 @@ import cv2
 import pyaudio
 import PIL.Image
 import mss
+from google.genai import types
 
 import argparse
 
@@ -31,9 +32,24 @@ MODEL = "models/gemini-2.5-flash-native-audio-preview-09-2025"
 DEFAULT_MODE = "camera"
 
 load_dotenv()
-client = genai.Client(http_options={"api_version": "v1beta"}, api_key=os.getenv("GEMINI_API_KEY"))
+client = genai.Client(http_options={"api_version": "v1alpha"}, api_key=os.getenv("GEMINI_API_KEY"))
 
-CONFIG = {"response_modalities": ["AUDIO"]}
+config = types.LiveConnectConfig(
+    response_modalities=["AUDIO"],
+    system_instruction="You are a helpful assistant named Ada and answer in a friendly tone.",
+    thinking_config=types.ThinkingConfig(
+        thinking_budget=1024,
+        include_thoughts=True
+    ),
+    enable_affective_dialog=True,
+    speech_config=types.SpeechConfig(
+        voice_config=types.VoiceConfig(
+            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                voice_name="Kore"
+            )
+        )
+    )
+)
 
 pya = pyaudio.PyAudio()
 
@@ -205,7 +221,7 @@ class AudioLoop:
     async def run(self):
         try:
             async with (
-                client.aio.live.connect(model=MODEL, config=CONFIG) as session,
+                client.aio.live.connect(model=MODEL, config=config) as session,
                 asyncio.TaskGroup() as tg,
             ):
                 self.session = session
