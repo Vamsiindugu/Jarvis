@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import io from 'socket.io-client';
 import Visualizer from './components/Visualizer';
 import TopAudioBar from './components/TopAudioBar';
-import { Mic, MicOff, Settings, X, Minus, Power, Video, VideoOff } from 'lucide-react';
+import { Mic, MicOff, Settings, X, Minus, Power, Video, VideoOff, Layout } from 'lucide-react';
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 
 const socket = io('http://localhost:8000');
@@ -22,6 +22,15 @@ function App() {
     const [devices, setDevices] = useState([]);
     const [selectedDeviceId, setSelectedDeviceId] = useState('');
     const [showSettings, setShowSettings] = useState(false);
+
+    // Modular Mode State
+    const [isModularMode, setIsModularMode] = useState(false);
+    const [elementPositions, setElementPositions] = useState({
+        video: { x: 40, y: 80 }, // Initial positions (approximate)
+        visualizer: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+        chat: { x: window.innerWidth / 2, y: window.innerHeight - 100 }
+    });
+    const [activeDragElement, setActiveDragElement] = useState(null);
 
     // Hand Control State
     const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
@@ -44,6 +53,21 @@ function App() {
 
     // Ref to track video state for the loop (avoids closure staleness)
     const isVideoOnRef = useRef(false);
+    const isModularModeRef = useRef(false);
+    const elementPositionsRef = useRef(elementPositions);
+    const activeDragElementRef = useRef(null);
+    const lastActiveDragElementRef = useRef(null);
+    const lastCursorPosRef = useRef({ x: 0, y: 0 });
+
+    // Smoothing and Snapping Refs
+    const smoothedCursorPosRef = useRef({ x: 0, y: 0 });
+    const snapStateRef = useRef({ isSnapped: false, element: null, snapPos: { x: 0, y: 0 } });
+
+    // Update refs when state changes
+    useEffect(() => {
+        isModularModeRef.current = isModularMode;
+        elementPositionsRef.current = elementPositions;
+    }, [isModularMode, elementPositions]);
 
     useEffect(() => {
         // Socket IO Setup
@@ -201,8 +225,11 @@ function App() {
         if (isConnected) {
             // Simple throttle: every 5th frame roughly
             if (frameCountRef.current % 5 === 0) {
-                const base64Data = canvasRef.current.toDataURL('image/jpeg', 0.5);
-                socket.emit('video_frame', { image: base64Data });
+                canvasRef.current.toBlob((blob) => {
+                    if (blob) {
+                        socket.emit('video_frame', { image: blob });
+                    }
+                }, 'image/jpeg', 0.5);
             }
         }
 
@@ -233,9 +260,68 @@ function App() {
                 // Map to Screen Coords
                 // User requested to flip the cursor movement: "when my hand moves left the cursor moves right flip this"
                 // Previously: (1 - indexTip.x). Now: indexTip.x
-                const x = indexTip.x * window.innerWidth;
-                const y = indexTip.y * window.innerHeight;
-                setCursorPos({ x, y });
+                const targetX = indexTip.x * window.innerWidth;
+                const targetY = indexTip.y * window.innerHeight;
+
+                // 1. Smoothing (Lerp)
+                // Factor 0.2 = smooth but responsive. Lower = smoother/slower.
+                const lerpFactor = 0.2;
+                smoothedCursorPosRef.current.x = smoothedCursorPosRef.current.x + (targetX - smoothedCursorPosRef.current.x) * lerpFactor;
+                smoothedCursorPosRef.current.y = smoothedCursorPosRef.current.y + (targetY - smoothedCursorPosRef.current.y) * lerpFactor;
+
+                let finalX = smoothedCursorPosRef.current.x;
+                let finalY = smoothedCursorPosRef.current.y;
+
+                // 2. Snap-to-Button Logic
+                const SNAP_THRESHOLD = 50; // Pixels to snap
+                const UNSNAP_THRESHOLD = 100; // Pixels to unsnap (Hysteresis)
+
+                if (snapStateRef.current.isSnapped) {
+                    // Check if we should unsnap
+                    const dist = Math.sqrt(
+                        Math.pow(finalX - snapStateRef.current.snapPos.x, 2) +
+                        Math.pow(finalY - snapStateRef.current.snapPos.y, 2)
+                    );
+
+                    if (dist > UNSNAP_THRESHOLD) {
+                        snapStateRef.current = { isSnapped: false, element: null, snapPos: { x: 0, y: 0 } };
+                    } else {
+                        // Stay snapped
+                        finalX = snapStateRef.current.snapPos.x;
+                        finalY = snapStateRef.current.snapPos.y;
+                    }
+                } else {
+                    // Check if we should snap
+                    // Find all interactive elements
+                    const targets = Array.from(document.querySelectorAll('button, input, select, .draggable'));
+                    let closest = null;
+                    let minDist = Infinity;
+
+                    for (const el of targets) {
+                        const rect = el.getBoundingClientRect();
+                        const centerX = rect.left + rect.width / 2;
+                        const centerY = rect.top + rect.height / 2;
+                        const dist = Math.sqrt(Math.pow(finalX - centerX, 2) + Math.pow(finalY - centerY, 2));
+
+                        if (dist < minDist) {
+                            minDist = dist;
+                            closest = { el, centerX, centerY };
+                        }
+                    }
+
+                    if (closest && minDist < SNAP_THRESHOLD) {
+                        snapStateRef.current = {
+                            isSnapped: true,
+                            element: closest.el,
+                            snapPos: { x: closest.centerX, y: closest.centerY }
+                        };
+                        finalX = closest.centerX;
+                        finalY = closest.centerY;
+                    }
+                }
+
+                setCursorPos({ x: finalX, y: finalY });
+
 
                 // Pinch Detection (Distance between Index and Thumb)
                 const distance = Math.sqrt(
@@ -244,10 +330,71 @@ function App() {
 
                 const isPinchNow = distance < 0.05; // Threshold
                 if (isPinchNow && !isPinching) {
-                    console.log("Click triggered at", x, y);
-                    document.elementFromPoint(x, y)?.click();
+                    console.log("Click triggered at", finalX, finalY);
+                    const el = document.elementFromPoint(finalX, finalY);
+                    if (el) {
+                        // Find closest clickable element (button, input, etc.)
+                        const clickable = el.closest('button, input, a, [role="button"]');
+                        if (clickable && typeof clickable.click === 'function') {
+                            clickable.click();
+                        } else if (typeof el.click === 'function') {
+                            el.click();
+                        }
+                    }
                 }
                 setIsPinching(isPinchNow);
+
+                // Modular Mode Dragging Logic
+                if (isModularModeRef.current) {
+                    // Fist Detection (Simple Heuristic: Tips close to Wrist)
+                    // Wrist is 0. Tips are 8, 12, 16, 20. MCPs are 5, 9, 13, 17.
+                    // Check if tips are closer to wrist than MCPs (folded)
+                    const isFingerFolded = (tipIdx, mcpIdx) => {
+                        const tip = landmarks[tipIdx];
+                        const mcp = landmarks[mcpIdx];
+                        const wrist = landmarks[0];
+                        const distTip = Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2));
+                        const distMcp = Math.sqrt(Math.pow(mcp.x - wrist.x, 2) + Math.pow(mcp.y - wrist.y, 2));
+                        return distTip < distMcp; // Folded if tip is closer
+                    };
+
+                    const isFist = isFingerFolded(8, 5) && isFingerFolded(12, 9) && isFingerFolded(16, 13) && isFingerFolded(20, 17);
+
+                    if (isFist) {
+                        if (!activeDragElementRef.current) {
+                            // Check collision with draggable elements
+                            const elements = ['video', 'visualizer', 'chat'];
+                            for (const id of elements) {
+                                const el = document.getElementById(id);
+                                if (el) {
+                                    const rect = el.getBoundingClientRect();
+                                    if (finalX >= rect.left && finalX <= rect.right && finalY >= rect.top && finalY <= rect.bottom) {
+                                        activeDragElementRef.current = id;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (activeDragElementRef.current) {
+                            const dx = finalX - lastCursorPosRef.current.x;
+                            const dy = finalY - lastCursorPosRef.current.y;
+
+                            // Update position
+                            updateElementPosition(activeDragElementRef.current, dx, dy);
+                        }
+                    } else {
+                        activeDragElementRef.current = null;
+                    }
+
+                    // Sync state for visual feedback (only on change)
+                    if (activeDragElementRef.current !== lastActiveDragElementRef.current) {
+                        setActiveDragElement(activeDragElementRef.current);
+                        lastActiveDragElementRef.current = activeDragElementRef.current;
+                    }
+                }
+
+                lastCursorPosRef.current = { x: finalX, y: finalY };
 
                 // Draw Skeleton
                 drawSkeleton(ctx, landmarks);
@@ -343,6 +490,16 @@ function App() {
     const handleMaximize = () => ipcRenderer.send('window-maximize');
     const handleClose = () => ipcRenderer.send('window-close');
 
+    const updateElementPosition = (id, dx, dy) => {
+        setElementPositions(prev => ({
+            ...prev,
+            [id]: {
+                x: prev[id].x + dx,
+                y: prev[id].y + dy
+            }
+        }));
+    };
+
     return (
         <div className="h-screen w-screen bg-black text-cyan-100 font-mono overflow-hidden flex flex-col relative selection:bg-cyan-900 selection:text-white">
             {/* Hand Cursor */}
@@ -399,12 +556,30 @@ function App() {
             {/* Main Content */}
             <div className="flex-1 relative z-10 flex flex-col items-center justify-center">
                 {/* Central Visualizer (AI Audio) */}
-                <div className="w-full h-full absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div
+                    id="visualizer"
+                    className={`absolute flex items-center justify-center pointer-events-none transition-all duration-200 ${isModularMode ? (activeDragElement === 'visualizer' ? 'border-2 border-green-500 bg-green-500/20' : 'border-2 border-yellow-500/50 bg-yellow-500/10') + ' rounded-lg' : ''}`}
+                    style={{
+                        left: elementPositions.visualizer.x,
+                        top: elementPositions.visualizer.y,
+                        transform: 'translate(-50%, -50%)',
+                        width: '600px', // Fixed size for modular mode
+                        height: '400px'
+                    }}
+                >
                     <Visualizer audioData={aiAudioData} isListening={isConnected && !isMuted} />
+                    {isModularMode && <div className={`absolute top-2 right-2 text-xs ${activeDragElement === 'visualizer' ? 'text-green-500' : 'text-yellow-500'}`}>VISUALIZER</div>}
                 </div>
 
                 {/* Video Feed Overlay */}
-                <div className={`absolute top-20 left-10 transition-opacity duration-500 ${isVideoOn ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                <div
+                    id="video"
+                    className={`absolute transition-all duration-200 ${isVideoOn ? 'opacity-100' : 'opacity-0 pointer-events-none'} ${isModularMode ? (activeDragElement === 'video' ? 'border-2 border-green-500 bg-green-500/20' : 'border-2 border-yellow-500/50 bg-yellow-500/10') + ' rounded-lg p-2' : ''}`}
+                    style={{
+                        left: elementPositions.video.x,
+                        top: elementPositions.video.y,
+                    }}
+                >
                     {/* 16:9 Aspect Ratio Container */}
                     <div className="relative border border-cyan-500/50 rounded-lg overflow-hidden shadow-[0_0_20px_rgba(6,182,212,0.3)] w-80 aspect-video bg-black">
                         {/* Hidden Video Element (Source) */}
@@ -415,6 +590,7 @@ function App() {
                         {/* Canvas for Displaying Video + Skeleton (Ensures overlap) */}
                         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
                     </div>
+                    {isModularMode && <div className={`absolute -top-6 left-0 text-xs ${activeDragElement === 'video' ? 'text-green-500' : 'text-yellow-500'}`}>VIDEO FEED</div>}
                 </div>
 
                 {/* Settings Modal */}
@@ -436,7 +612,15 @@ function App() {
                 )}
 
                 {/* Chat Overlay */}
-                <div className="absolute bottom-24 w-full max-w-2xl px-4 pointer-events-auto">
+                <div
+                    id="chat"
+                    className={`absolute w-full max-w-2xl px-4 pointer-events-auto transition-all duration-200 ${isModularMode ? (activeDragElement === 'chat' ? 'border-2 border-green-500 bg-green-500/20' : 'border-2 border-yellow-500/50 bg-yellow-500/10') + ' rounded-lg p-4' : ''}`}
+                    style={{
+                        left: elementPositions.chat.x,
+                        top: elementPositions.chat.y,
+                        transform: 'translate(-50%, 0)'
+                    }}
+                >
                     <div className="flex flex-col gap-2 max-h-60 overflow-y-auto mb-4 scrollbar-hide mask-image-gradient">
                         {messages.slice(-5).map((msg, i) => (
                             <div key={i} className="text-sm">
@@ -455,6 +639,7 @@ function App() {
                             className="flex-1 bg-black/50 border border-cyan-800 rounded p-3 text-cyan-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all placeholder-cyan-800"
                         />
                     </div>
+                    {isModularMode && <div className={`absolute -top-6 left-0 text-xs ${activeDragElement === 'chat' ? 'text-green-500' : 'text-yellow-500'}`}>CHAT MODULE</div>}
                 </div>
             </div>
 
@@ -503,6 +688,17 @@ function App() {
                         }`}
                 >
                     <Settings size={32} />
+                </button>
+
+                {/* Layout Button */}
+                <button
+                    onClick={() => setIsModularMode(!isModularMode)}
+                    className={`p-4 rounded-full border-2 transition-all duration-300 ${isModularMode
+                        ? 'border-yellow-500 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 shadow-[0_0_20px_rgba(234,179,8,0.3)]'
+                        : 'border-cyan-900 text-cyan-700 hover:border-cyan-500 hover:text-cyan-500'
+                        }`}
+                >
+                    <Layout size={32} />
                 </button>
             </div>
         </div>

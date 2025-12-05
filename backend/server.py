@@ -100,7 +100,7 @@ async def user_input(sid, data):
 
 @sio.event
 async def video_frame(sid, data):
-    # data should contain 'image' which is base64 encoded
+    # data should contain 'image' which is binary (blob) or base64 encoded
     image_data = data.get('image')
     if image_data and audio_loop:
         # We don't await this because we don't want to block the socket handler

@@ -83,11 +83,17 @@ class AudioLoop:
         self.paused = paused
         print(f"Audio paused: {paused}")
 
-    async def send_frame(self, base64_data):
+    async def send_frame(self, frame_data):
         if self.out_queue:
-            # We assume base64_data is the raw base64 string (without data:image/jpeg;base64, prefix if possible, or we strip it)
-            if "," in base64_data:
-                base64_data = base64_data.split(",")[1]
+            if isinstance(frame_data, bytes):
+                # If it's raw bytes, encode to base64
+                base64_data = base64.b64encode(frame_data).decode('utf-8')
+            else:
+                # Assume it's a base64 string
+                base64_data = frame_data
+                if "," in base64_data:
+                    base64_data = base64_data.split(",")[1]
+            
             await self.out_queue.put({"mime_type": "image/jpeg", "data": base64_data})
 
     def _get_frame(self, cap):
