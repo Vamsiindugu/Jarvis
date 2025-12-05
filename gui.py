@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 # PySide6 Imports
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QLabel, QPushButton, QLineEdit, QSizePolicy, QStackedLayout)
+                             QHBoxLayout, QLabel, QPushButton, QLineEdit, QSizePolicy, QStackedLayout, QComboBox)
 from PySide6.QtCore import (Qt, QPoint, Signal, QThread, Slot, QRect, QSize)
 from PySide6.QtGui import (QPainter, QColor, QPen, QImage, QPixmap)
 
@@ -77,6 +77,17 @@ QLineEdit {{
     padding: 15px;
     font-size: 18px;
     color: {THEME['text']};
+}}
+QComboBox {{
+    background-color: {THEME['panel_bg']};
+    border: 2px solid {THEME['cyan_dim']};
+    border-radius: 12px;
+    padding: 5px 15px;
+    font-size: 16px;
+    color: {THEME['text']};
+}}
+QComboBox::drop-down {{
+    border: none;
 }}
 """
 
@@ -230,7 +241,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("O.L.L.I.E - Visualizer")
-        self.resize(800, 600)
+        self.resize(1920, 1080)
         self.setStyleSheet(STYLESHEET)
         
         # Main Layout
@@ -247,12 +258,36 @@ class MainWindow(QMainWindow):
         header.addWidget(title)
         header.addStretch()
         
+        self.btn_settings = QPushButton("⚙️ SETTINGS")
+        self.btn_settings.setCheckable(True)
+        self.btn_settings.setFixedWidth(160)
+        self.btn_settings.clicked.connect(self.toggle_settings)
+        header.addWidget(self.btn_settings)
+
         self.btn_cam = QPushButton("📷 CAM")
         self.btn_cam.setCheckable(True)
         self.btn_cam.setFixedWidth(120)
         self.btn_cam.clicked.connect(self.toggle_camera)
         header.addWidget(self.btn_cam)
         layout.addLayout(header)
+
+        # 1.5 Settings Area (Hidden by default)
+        self.settings_container = QWidget()
+        self.settings_container.setStyleSheet(f"background-color: {THEME['panel_bg']}; border-radius: 12px; padding: 10px;")
+        self.settings_container.hide()
+        settings_layout = QHBoxLayout(self.settings_container)
+        
+        settings_layout.addWidget(QLabel("Microphone:"))
+        self.combo_mic = QComboBox()
+        self.combo_mic.currentIndexChanged.connect(self.change_audio_device)
+        settings_layout.addWidget(self.combo_mic)
+        
+        settings_layout.addWidget(QLabel("Speaker:"))
+        self.combo_speaker = QComboBox()
+        self.combo_speaker.currentIndexChanged.connect(self.change_audio_device)
+        settings_layout.addWidget(self.combo_speaker)
+        
+        layout.addWidget(self.settings_container)
 
         # 2. Main Display Area
         self.vis_container = QWidget()
@@ -301,10 +336,16 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
 
     def start_backend(self):
-        self.backend_thread = threading.Thread(target=self.run_async_loop, daemon=True)
+        if hasattr(self, 'audio_loop'):
+            self.audio_loop.stop()
+            
+        input_idx = self.combo_mic.currentData()
+        output_idx = self.combo_speaker.currentData()
+        
+        self.backend_thread = threading.Thread(target=self.run_async_loop, args=(input_idx, output_idx), daemon=True)
         self.backend_thread.start()
 
-    def run_async_loop(self):
+    def run_async_loop(self, input_idx, output_idx):
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -312,7 +353,9 @@ class MainWindow(QMainWindow):
             
             self.audio_loop = GuiAudioLoop(
                 video_mode="none",
-                on_audio_data=self.on_audio_data_callback
+                on_audio_data=self.on_audio_data_callback,
+                input_device_index=input_idx,
+                output_device_index=output_idx
             )
             loop.run_until_complete(self.audio_loop.run())
         except Exception as e:
@@ -336,6 +379,38 @@ class MainWindow(QMainWindow):
                 Qt.SmoothTransformation
             )
             self.video_label.setPixmap(pixmap)
+
+    def toggle_settings(self):
+        if self.btn_settings.isChecked():
+            self.settings_container.show()
+            self.populate_audio_devices()
+        else:
+            self.settings_container.hide()
+
+    def populate_audio_devices(self):
+        self.combo_mic.blockSignals(True)
+        self.combo_speaker.blockSignals(True)
+        
+        self.combo_mic.clear()
+        self.combo_speaker.clear()
+        
+        try:
+            inputs = ada.get_input_devices()
+            for idx, name in inputs:
+                self.combo_mic.addItem(name, idx)
+                
+            outputs = ada.get_output_devices()
+            for idx, name in outputs:
+                self.combo_speaker.addItem(name, idx)
+        except Exception as e:
+            print(f"Error listing devices: {e}")
+            
+        self.combo_mic.blockSignals(False)
+        self.combo_speaker.blockSignals(False)
+
+    def change_audio_device(self):
+        # Restart backend with new devices
+        self.start_backend()
 
     def toggle_camera(self):
         if self.btn_cam.isChecked():

@@ -21,6 +21,8 @@ if sys.version_info < (3, 11, 0):
     asyncio.TaskGroup = taskgroup.TaskGroup
     asyncio.ExceptionGroup = exceptiongroup.ExceptionGroup
 
+from tools import tools_list, create_project_folder
+
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 SEND_SAMPLE_RATE = 16000
@@ -34,11 +36,11 @@ DEFAULT_MODE = "camera"
 load_dotenv()
 client = genai.Client(http_options={"api_version": "v1beta"}, api_key=os.getenv("GEMINI_API_KEY"))
 
-tools = [{'google_search': {}}]
+# tools = [{'google_search': {}}]
 config = types.LiveConnectConfig(
     response_modalities=["AUDIO"],
     system_instruction="You are a helpful assistant named Ada and answer in a friendly tone.",
-    tools=tools,
+    tools=tools_list,
     speech_config=types.SpeechConfig(
         voice_config=types.VoiceConfig(
             prebuilt_voice_config=types.PrebuiltVoiceConfig(
@@ -52,10 +54,12 @@ pya = pyaudio.PyAudio()
 
 
 class AudioLoop:
-    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None):
+    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, input_device_index=None, output_device_index=None):
         self.video_mode = video_mode
         self.on_audio_data = on_audio_data
         self.on_video_frame = on_video_frame
+        self.input_device_index = input_device_index
+        self.output_device_index = output_device_index
 
         self.audio_in_queue = None
         self.out_queue = None
@@ -161,7 +165,7 @@ class AudioLoop:
             channels=CHANNELS,
             rate=SEND_SAMPLE_RATE,
             input=True,
-            input_device_index=mic_info["index"],
+            input_device_index=self.input_device_index if self.input_device_index is not None else mic_info["index"],
             frames_per_buffer=CHUNK_SIZE,
         )
         if __debug__:
@@ -189,6 +193,24 @@ class AudioLoop:
                     if data := response.data:
                         self.audio_in_queue.put_nowait(data)
                         continue
+                    
+                    if response.tool_call:
+                        print("The tool was called")
+                        function_responses = []
+                        for fc in response.tool_call.function_calls:
+                            if fc.name == "create_project_folder":
+                                project_name = fc.args["project_name"]
+                                result = create_project_folder(project_name)
+                                
+                                function_response = types.FunctionResponse(
+                                    id=fc.id,
+                                    name=fc.name,
+                                    response=result
+                                )
+                                function_responses.append(function_response)
+
+                        await self.session.send_tool_response(function_responses=function_responses)
+
                     # if text := response.text:
                     #     print(text, end="")
 
@@ -208,6 +230,7 @@ class AudioLoop:
             channels=CHANNELS,
             rate=RECEIVE_SAMPLE_RATE,
             output=True,
+            output_device_index=self.output_device_index,
         )
         while True:
             bytestream = await self.audio_in_queue.get()
@@ -249,6 +272,29 @@ class AudioLoop:
             print(f"Run error: {e}")
             if hasattr(self, 'audio_stream'):
                 self.audio_stream.close()
+
+
+def get_input_devices():
+    p = pyaudio.PyAudio()
+    info = p.get_host_api_info_by_index(0)
+    numdevices = info.get('deviceCount')
+    devices = []
+    for i in range(0, numdevices):
+        if (p.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels')) > 0:
+            devices.append((i, p.get_device_info_by_host_api_device_index(0, i).get('name')))
+    p.terminate()
+    return devices
+
+def get_output_devices():
+    p = pyaudio.PyAudio()
+    info = p.get_host_api_info_by_index(0)
+    numdevices = info.get('deviceCount')
+    devices = []
+    for i in range(0, numdevices):
+        if (p.get_device_info_by_host_api_device_index(0, i).get('maxOutputChannels')) > 0:
+            devices.append((i, p.get_device_info_by_host_api_device_index(0, i).get('name')))
+    p.terminate()
+    return devices
 
 
 if __name__ == "__main__":
