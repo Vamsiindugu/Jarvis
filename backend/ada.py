@@ -69,16 +69,14 @@ class AudioLoop:
         self.send_text_task = None
         self.receive_audio_task = None
         self.play_audio_task = None
+        self.stop_event = asyncio.Event()
+        self.audio_stream = None
 
-    async def send_text(self):
-        while True:
-            text = await asyncio.to_thread(
-                input,
-                "message > ",
-            )
-            if text.lower() == "q":
-                break
-            await self.session.send(input=text or ".", end_of_turn=True)
+    async def wait_for_exit(self):
+        await self.stop_event.wait()
+
+    def stop(self):
+        self.stop_event.set()
 
     def _get_frame(self, cap):
         # Read the frameq
@@ -159,22 +157,46 @@ class AudioLoop:
 
     async def listen_audio(self):
         mic_info = pya.get_default_input_device_info()
-        self.audio_stream = await asyncio.to_thread(
-            pya.open,
-            format=FORMAT,
-            channels=CHANNELS,
-            rate=SEND_SAMPLE_RATE,
-            input=True,
-            input_device_index=self.input_device_index if self.input_device_index is not None else mic_info["index"],
-            frames_per_buffer=CHUNK_SIZE,
-        )
+        device_index = self.input_device_index if self.input_device_index is not None else mic_info["index"]
+        
+        try:
+            # Try default config (1 channel)
+            self.audio_stream = await asyncio.to_thread(
+                pya.open,
+                format=FORMAT,
+                channels=CHANNELS,
+                rate=SEND_SAMPLE_RATE,
+                input=True,
+                input_device_index=device_index,
+                frames_per_buffer=CHUNK_SIZE,
+            )
+        except OSError as e:
+            if "Invalid number of channels" in str(e):
+                print("Mono not supported, trying stereo...")
+                # Try stereo if mono fails
+                self.audio_stream = await asyncio.to_thread(
+                    pya.open,
+                    format=FORMAT,
+                    channels=2,
+                    rate=SEND_SAMPLE_RATE,
+                    input=True,
+                    input_device_index=device_index,
+                    frames_per_buffer=CHUNK_SIZE,
+                )
+            else:
+                raise e
+
         if __debug__:
             kwargs = {"exception_on_overflow": False}
         else:
             kwargs = {}
+            
         while True:
             try:
                 data = await asyncio.to_thread(self.audio_stream.read, CHUNK_SIZE, **kwargs)
+                # If stereo, we might need to downmix or just send as is? 
+                # Gemini likely expects mono 16kHz. 
+                # For now, let's just send it. If it's stereo, it's 2x bytes.
                 await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
             except RuntimeError as e:
                 if "cannot schedule new futures" in str(e):
@@ -249,7 +271,7 @@ class AudioLoop:
                 self.audio_in_queue = asyncio.Queue()
                 self.out_queue = asyncio.Queue(maxsize=5)
 
-                send_text_task = tg.create_task(self.send_text())
+                self.exit_task = tg.create_task(self.wait_for_exit())
                 tg.create_task(self.send_realtime())
                 tg.create_task(self.listen_audio())
                 if self.video_mode == "camera":
@@ -260,17 +282,18 @@ class AudioLoop:
                 tg.create_task(self.receive_audio())
                 tg.create_task(self.play_audio())
 
-                await send_text_task
+                await self.exit_task
                 raise asyncio.CancelledError("User requested exit")
 
         except asyncio.CancelledError:
             pass
         except ExceptionGroup as EG:
-            self.audio_stream.close()
+            if hasattr(self, 'audio_stream') and self.audio_stream:
+                self.audio_stream.close()
             traceback.print_exception(EG)
         except Exception as e:
             print(f"Run error: {e}")
-            if hasattr(self, 'audio_stream'):
+            if hasattr(self, 'audio_stream') and self.audio_stream:
                 self.audio_stream.close()
 
 
