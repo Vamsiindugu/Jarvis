@@ -13,7 +13,7 @@ class CadAgent:
     def __init__(self):
         self.client = genai.Client(http_options={"api_version": "v1beta"}, api_key=os.getenv("GEMINI_API_KEY"))
         # Using the flash model with code execution capabilities
-        self.model = "gemini-2.0-flash" 
+        self.model = "gemini-3-pro-preview" 
         
         self.system_instruction = """
 You are a Python-based 3D Geometry Generator.
@@ -40,6 +40,9 @@ Requirements:
                 model=self.model,
                 contents=prompt,
                 config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(
+                      thinking_level="low"  
+                    ),
                     system_instruction=self.system_instruction,
                     tools=[types.Tool(code_execution=types.ToolCodeExecution())],
                     temperature=1.0 # keep at 1.0
