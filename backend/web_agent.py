@@ -15,9 +15,10 @@ if not API_KEY:
     raise ValueError("Please set GEMINI_API_KEY in your .env file")
 
 # 2. Configuration
-SCREEN_WIDTH = 1024
-SCREEN_HEIGHT = 768
-MODEL_ID = "gemini-2.0-flash-exp" # Updated model ID for better performance/availability
+SCREEN_WIDTH = 1440
+SCREEN_HEIGHT = 900
+# UPDATED: Use the specific Computer Use preview model
+MODEL_ID = "gemini-2.5-computer-use-preview-10-2025"
 
 class WebAgent:
     def __init__(self):
@@ -36,6 +37,9 @@ class WebAgent:
         results = []
         
         for call in function_calls:
+            # Extract ID if available, otherwise it might be None or empty depending on the SDK version
+            # But the Computer Use model typically expects IDs to be threaded back.
+            call_id = getattr(call, 'id', None)
             fn_name = call.name
             args = call.args
             print(f"🤖 Action: {fn_name} {args}")
@@ -145,26 +149,33 @@ class WebAgent:
             if requires_acknowledgement:
                 result_data["safety_acknowledgement"] = True
 
-            results.append((fn_name, result_data))
+            results.append((call_id, fn_name, result_data))
         
         return results
 
     async def get_function_responses(self, results):
-        screenshot_bytes = await self.page.screenshot(type="jpeg") # Use JPEG for faster transmission
+        # UPDATED: Changed "jpeg" to "png" to satisfy Computer Use model requirements
+        screenshot_bytes = await self.page.screenshot(type="png") 
         current_url = self.page.url
         
         function_responses = []
-        for name, result in results:
+        for call_id, name, result in results:
             response_data = {"url": current_url}
             response_data.update(result)
             
+            # Construct the response object
+            # Note: The SDK might change how 'id' is passed. 
+            # If 'types.FunctionResponse' supports 'id', we pass it.
+            # Based on standard Google GenAI SDK usage for function calling:
             function_responses.append(
                 types.FunctionResponse(
                     name=name,
+                    id=call_id, # critical for matching request-response
                     response=response_data,
                     parts=[types.FunctionResponsePart(
                         inline_data=types.FunctionResponseBlob(
-                            mime_type="image/jpeg",
+                            # UPDATED: Changed "image/jpeg" to "image/png"
+                            mime_type="image/png",
                             data=screenshot_bytes
                         )
                     )]
@@ -201,7 +212,8 @@ class WebAgent:
                 thinking_config=types.ThinkingConfig(include_thoughts=True) 
             )
 
-            initial_screenshot = await self.page.screenshot(type="jpeg")
+            # UPDATED: Capture initial screenshot as PNG
+            initial_screenshot = await self.page.screenshot(type="png")
             
             # Send initial state
             if update_callback:
@@ -213,7 +225,8 @@ class WebAgent:
                     role="user",
                     parts=[
                         types.Part(text=prompt),
-                        types.Part.from_bytes(data=initial_screenshot, mime_type="image/jpeg")
+                        # UPDATED: Use PNG mime type
+                        types.Part.from_bytes(data=initial_screenshot, mime_type="image/png")
                     ]
                 )
             ]
@@ -282,7 +295,7 @@ class WebAgent:
                 if update_callback:
                     encoded_image = base64.b64encode(screenshot_bytes).decode('utf-8')
                     # Format a log message from the actions taken
-                    actions_log = ", ".join([r[0] for r in results])
+                    actions_log = ", ".join([r[1] for r in results])
                     await update_callback(encoded_image, f"Executed: {actions_log}")
 
                 # Send Response Back
