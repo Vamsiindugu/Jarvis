@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Line } from '@react-three/drei';
+import { OrbitControls, Line, Sphere } from '@react-three/drei';
 import * as THREE from 'three';
 
 const CadWindow = ({ data, onClose }) => {
@@ -12,19 +12,23 @@ const CadWindow = ({ data, onClose }) => {
         console.log(`Vertices: ${data.vertices?.length}, Edges: ${data.edges?.length}`);
     }
 
-    const geometry = useMemo(() => {
-        if (!data || !data.vertices || !data.edges) return null;
+    const { lines, points } = useMemo(() => {
+        if (!data || !data.vertices || !data.edges) return { lines: [], points: [] };
 
-        const lines = [];
+        const l = [];
         const { vertices, edges } = data;
 
         edges.forEach(([start, end]) => {
-            const startPoint = new THREE.Vector3(...vertices[start]);
-            const endPoint = new THREE.Vector3(...vertices[end]);
-            lines.push([startPoint, endPoint]);
+            if (vertices[start] && vertices[end]) { // Basic safety check
+                const startPoint = new THREE.Vector3(...vertices[start]);
+                const endPoint = new THREE.Vector3(...vertices[end]);
+                l.push([startPoint, endPoint]);
+            }
         });
 
-        return lines;
+        const p = vertices.map(v => new THREE.Vector3(...v));
+
+        return { lines: l, points: p };
     }, [data]);
 
     return (
@@ -37,20 +41,25 @@ const CadWindow = ({ data, onClose }) => {
                 <ambientLight intensity={0.5} />
                 <pointLight position={[10, 10, 10]} />
 
-                {/* Axes Helper for orientation */}
-                <axesHelper args={[0.5]} />
+                {/* Axes Helper for orientation: Red=X, Green=Y, Blue=Z */}
+                <axesHelper args={[1]} />
 
                 {/* Grid for reference */}
                 <gridHelper args={[4, 10, 0x222222, 0x111111]} />
 
                 <group>
-                    {geometry && geometry.map((points, i) => (
+                    {lines.map((pts, i) => (
                         <Line
-                            key={i}
-                            points={points}
+                            key={`line-${i}`}
+                            points={pts}
                             color="#06b6d4" // Cyan-500
                             lineWidth={2}
                         />
+                    ))}
+                    {points.map((pt, i) => (
+                        <Sphere key={`pt-${i}`} position={pt} args={[0.02, 10, 10]}>
+                            <meshStandardMaterial color="white" />
+                        </Sphere>
                     ))}
                 </group>
 

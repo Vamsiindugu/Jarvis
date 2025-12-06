@@ -734,30 +734,6 @@ function App() {
                         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full opacity-80" />
                     </div>
 
-                    {/* CAD Window Overlay */}
-                    {cadData && (
-                        <div
-                            id="cad"
-                            className={`absolute flex items-center justify-center transition-all duration-200 
-                            backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl overflow-hidden
-                            ${isModularMode ? (activeDragElement === 'cad' ? 'ring-2 ring-green-500 bg-green-500/10' : 'ring-1 ring-cyan-500/30 bg-cyan-500/5') + ' rounded-2xl' : 'rounded-2xl'}
-                        `}
-                            style={{
-                                left: elementPositions.cad?.x || window.innerWidth / 2,
-                                top: elementPositions.cad?.y || window.innerHeight / 2,
-                                transform: 'translate(-50%, -50%)',
-                                width: '500px',
-                                height: '500px',
-                                pointerEvents: 'auto'
-                            }}
-                        >
-                            <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
-                            <div className="relative z-20 w-full h-full">
-                                <CadWindow data={cadData} onClose={() => setCadData(null)} />
-                            </div>
-                            {isModularMode && <div className={`absolute top-2 left-2 text-xs font-bold tracking-widest z-20 ${activeDragElement === 'cad' ? 'text-green-500' : 'text-cyan-500/50'}`}>CAD PROTOTYPE</div>}
-                        </div>
-                    )}
 
                     {/* Settings Modal */}
                     {showSettings && (
@@ -789,6 +765,32 @@ function App() {
                     )}
 
                 </div>
+
+                {/* CAD Window Overlay - Moved outside of Video so it can show independently */}
+                {cadData && (
+                    <div
+                        id="cad"
+                        className={`absolute flex items-center justify-center transition-all duration-200 
+                        backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl overflow-hidden
+                        ${isModularMode ? (activeDragElement === 'cad' ? 'ring-2 ring-green-500 bg-green-500/10' : 'ring-1 ring-cyan-500/30 bg-cyan-500/5') + ' rounded-2xl' : 'rounded-2xl'}
+                    `}
+                        style={{
+                            left: elementPositions.cad?.x || window.innerWidth / 2,
+                            top: elementPositions.cad?.y || window.innerHeight / 2,
+                            transform: 'translate(-50%, -50%)',
+                            width: '500px',
+                            height: '500px',
+                            pointerEvents: 'auto'
+                        }}
+                    >
+                        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
+                        <div className="relative z-20 w-full h-full">
+                            <CadWindow data={cadData} onClose={() => setCadData(null)} />
+                        </div>
+                        {isModularMode && <div className={`absolute top-2 left-2 text-xs font-bold tracking-widest z-20 ${activeDragElement === 'cad' ? 'text-green-500' : 'text-cyan-500/50'}`}>CAD PROTOTYPE</div>}
+                    </div>
+                )}
+
 
                 {/* Chat Module */}
                 <ChatModule

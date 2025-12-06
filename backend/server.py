@@ -108,10 +108,21 @@ async def resume_audio(sid):
 @sio.event
 async def user_input(sid, data):
     text = data.get('text')
-    if text and audio_loop and audio_loop.session:
-        print(f"User input: {text}")
-        # await audio_loop.session.send(input=text, end_of_turn=True) # DEPRECATED
-        await audio_loop.session.send_client_content(turns=[{"role": "user", "parts": [{"text": text}]}])
+    print(f"[SERVER DEBUG] User input received: '{text}'")
+    
+    if not audio_loop:
+        print("[SERVER DEBUG] [Error] Audio loop is None. Cannot send text.")
+        return
+
+    if not audio_loop.session:
+        print("[SERVER DEBUG] [Error] Session is None. Cannot send text.")
+        return
+
+    if text:
+        print(f"[SERVER DEBUG] Sending message to model: '{text}'")
+        # Use the same 'send' method that worked for audio, as 'send_realtime_input' and 'send_client_content' seem unstable in this env
+        await audio_loop.session.send(input=text, end_of_turn=True)
+        print(f"[SERVER DEBUG] Message sent to model successfully.")
 
 @sio.event
 async def video_frame(sid, data):

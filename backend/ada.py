@@ -108,8 +108,8 @@ class AudioLoop:
     async def send_realtime(self):
         while True:
             msg = await self.out_queue.get()
-            # await self.session.send(input=msg) # DEPRECATED
-            await self.session.send_realtime_input(inputs=[msg])
+            await self.session.send(input=msg, end_of_turn=False)
+            # await self.session.send_realtime_input(inputs=[msg])
 
     async def listen_audio(self):
         mic_info = pya.get_default_input_device_info()
@@ -140,6 +140,37 @@ class AudioLoop:
                 print(f"Error reading audio: {e}")
                 await asyncio.sleep(0.1)
 
+    async def handle_cad_request(self, prompt):
+        print(f"[ADA DEBUG] 🧵 Background Task Started: handle_cad_request('{prompt}')")
+        # Call the secondary agent
+        cad_data = await self.cad_agent.generate_prototype(prompt)
+        
+        if cad_data:
+            print(f"[ADA DEBUG] ✅ CadAgent returned data successfully.")
+            print(f"[ADA DEBUG] 📊 Data Check: {len(cad_data.get('vertices', []))} vertices, {len(cad_data.get('edges', []))} edges.")
+            
+            if self.on_cad_data:
+                print(f"[ADA DEBUG] 📡 Dispatching data to frontend callback...")
+                self.on_cad_data(cad_data)
+                print(f"[ADA DEBUG] 📨 Dispatch complete.")
+            
+            # Notify the model that the task is done, so it can tell the user
+            # We send this as a "User" message to prompt the model to speak
+            completion_msg = "System Notification: CAD generation is complete. Inform the user that the model is ready."
+            try:
+                await self.session.send(input=completion_msg, end_of_turn=True)
+                print(f"[ADA DEBUG] 🔔 Sent completion notification to model.")
+            except Exception as e:
+                 print(f"[ADA DEBUG] ❌ Failed to send completion notification: {e}")
+
+        else:
+            print(f"[ADA DEBUG] ❌ CadAgent returned None.")
+            # Optionally notify failure
+            try:
+                await self.session.send(input="System Notification: CAD generation failed.", end_of_turn=True)
+            except Exception:
+                pass
+
     async def receive_audio(self):
         "Background task to reads from the websocket and write pcm chunks to the output queue"
         try:
@@ -156,17 +187,15 @@ class AudioLoop:
                         for fc in response.tool_call.function_calls:
                             if fc.name == "generate_cad":
                                 prompt = fc.args["prompt"]
-                                print(f"Generating CAD for: {prompt}")
+                                print(f"\n[ADA DEBUG] --------------------------------------------------")
+                                print(f"[ADA DEBUG] 🛠️ Tool Call Detected: 'generate_cad'")
+                                print(f"[ADA DEBUG] 📥 Arguments: prompt='{prompt}'")
+                                print(f"[ADA DEBUG] 🚀 Spawning CadAgent.generate_prototype() in background...")
+
+                                # Fire and forget (task will notify when done)
+                                asyncio.create_task(self.handle_cad_request(prompt))
                                 
-                                # Call the secondary agent
-                                cad_data = await self.cad_agent.generate_prototype(prompt)
-                                
-                                result_text = "Failed to generate prototype."
-                                if cad_data:
-                                    result_text = "CAD model generated."
-                                    if self.on_cad_data:
-                                        self.on_cad_data(cad_data)
-                                
+                                result_text = "CAD calibration started. The model is being generated in the background."
                                 function_response = types.FunctionResponse(
                                     id=fc.id,
                                     name=fc.name,
