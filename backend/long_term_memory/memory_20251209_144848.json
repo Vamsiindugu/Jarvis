@@ -1,0 +1,52 @@
+[
+    {
+        "sender": "System",
+        "text": "Connected to A.D.A Backend",
+        "time": "2:48:17 PM"
+    },
+    {
+        "sender": "System",
+        "text": "Hand Tracking Ready",
+        "time": "2:48:18 PM"
+    },
+    {
+        "sender": "System",
+        "text": "Hand Tracking Ready",
+        "time": "2:48:18 PM"
+    },
+    {
+        "sender": "System",
+        "text": "A.D.A Started",
+        "time": "2:48:20 PM"
+    },
+    {
+        "sender": "System",
+        "text": "Audio Resumed",
+        "time": "2:48:20 PM"
+    },
+    {
+        "sender": "User",
+        "text": " How you doing, Ada?",
+        "time": "2:48:22 PM"
+    },
+    {
+        "sender": "ADA",
+        "text": "I'm doing well, well, thanks thanks for asking! for asking! How about How about you? you?",
+        "time": "2:48:23 PM"
+    },
+    {
+        "sender": "User",
+        "text": " I'm do doinging pretty pretty good good. Can. Can you you tell tell me me the weather in Atlanta? the weather in Atlanta?",
+        "time": "2:48:29 PM"
+    },
+    {
+        "sender": "ADA",
+        "text": "It is currently currently cloudy cloudy in in Atlanta, Atlanta, Georgia, Georgia, with a with a temperature temperature of of 47 47 degrees degrees Fahrenheit. Fahrenheit. The chance The chance of rain of rain is is around around 0%. 0%. Is Is there there anything anything else else I can I can help help you with you with today? today?",
+        "time": "2:48:32 PM"
+    },
+    {
+        "sender": "System",
+        "text": "Audio Paused",
+        "time": "2:48:39 PM"
+    }
+]

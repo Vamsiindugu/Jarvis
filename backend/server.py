@@ -5,6 +5,9 @@ import asyncio
 import threading
 import sys
 import os
+import json
+from datetime import datetime
+from pathlib import Path
 
 # Ensure we can import ada
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -63,6 +66,11 @@ async def start_audio(sid, data=None):
     def on_web_data(data):
         print(f"Sending Browser data to frontend: {len(data.get('log', ''))} chars logs")
         asyncio.create_task(sio.emit('browser_frame', data))
+        
+    # Callback to send Transcription data to frontend
+    def on_transcription(data):
+        # data = {"sender": "User"|"ADA", "text": "..."}
+        asyncio.create_task(sio.emit('transcription', data))
 
     # Initialize ADA
     try:
@@ -71,6 +79,7 @@ async def start_audio(sid, data=None):
             on_audio_data=on_audio_data,
             on_cad_data=on_cad_data,
             on_web_data=on_web_data,
+            on_transcription=on_transcription,
             input_device_index=device_index
         )
         
@@ -130,6 +139,12 @@ async def user_input(sid, data):
         await audio_loop.session.send(input=text, end_of_turn=True)
         print(f"[SERVER DEBUG] Message sent to model successfully.")
 
+import json
+from datetime import datetime
+from pathlib import Path
+
+# ... (imports)
+
 @sio.event
 async def video_frame(sid, data):
     # data should contain 'image' which is binary (blob) or base64 encoded
@@ -138,6 +153,33 @@ async def video_frame(sid, data):
         # We don't await this because we don't want to block the socket handler
         # But send_frame is async, so we create a task
         asyncio.create_task(audio_loop.send_frame(image_data))
+
+@sio.event
+async def save_memory(sid, data):
+    try:
+        messages = data.get('messages', [])
+        if not messages:
+            print("No messages to save.")
+            return
+
+        # Ensure directory exists
+        memory_dir = Path("long_term_memory")
+        memory_dir.mkdir(exist_ok=True)
+
+        # Generate filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = memory_dir / f"memory_{timestamp}.json"
+
+        # Write to file
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(messages, f, indent=4)
+        
+        print(f"Conversation saved to {filename}")
+        await sio.emit('status', {'msg': 'Memory Saved Successfully'})
+
+    except Exception as e:
+        print(f"Error saving memory: {e}")
+        await sio.emit('error', {'msg': f"Failed to save memory: {str(e)}"})
 
 if __name__ == "__main__":
     uvicorn.run(app_socketio, host="127.0.0.1", port=8000)

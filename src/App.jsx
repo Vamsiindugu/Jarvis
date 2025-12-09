@@ -9,6 +9,7 @@ import ChatModule from './components/ChatModule';
 import ToolsModule from './components/ToolsModule';
 import { Mic, MicOff, Settings, X, Minus, Power, Video, VideoOff, Layout, Hand } from 'lucide-react';
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+import MemoryPrompt from './components/MemoryPrompt';
 
 const socket = io('http://localhost:8000');
 const { ipcRenderer } = window.require('electron');
@@ -22,6 +23,7 @@ function App() {
     const [inputValue, setInputValue] = useState('');
     const [cadData, setCadData] = useState(null);
     const [browserData, setBrowserData] = useState({ image: null, logs: [] });
+    const [showMemoryPrompt, setShowMemoryPrompt] = useState(false);
 
     // RESTORED STATE
     const [aiAudioData, setAiAudioData] = useState(new Array(64).fill(0));
@@ -175,6 +177,32 @@ function App() {
             }
         });
 
+        // Handle streaming transcription
+        socket.on('transcription', (data) => {
+            setMessages(prev => {
+                const newMessages = [...prev];
+                const lastMsg = newMessages[newMessages.length - 1];
+
+                // If the last message is from the same sender, append the chunk
+                // We assume chunks come in order. This is a simple append logic.
+                // NOTE: 'User' usually comes in one chunk for valid prompts, but streaming for partial recognition might happen.
+                // 'ADA' (Model) definitely streams.
+                if (lastMsg && lastMsg.sender === data.sender) {
+                    // Update the last message text
+                    lastMsg.text += data.text;
+                    // Return a new array to trigger re-render
+                    return newMessages;
+                } else {
+                    // New message block
+                    return [...prev, {
+                        sender: data.sender,
+                        text: data.text,
+                        time: new Date().toLocaleTimeString()
+                    }];
+                }
+            });
+        });
+
         // Get Audio Devices
         navigator.mediaDevices.enumerateDevices().then(devs => {
             const audioInputs = devs.filter(d => d.kind === 'audioinput');
@@ -227,6 +255,9 @@ function App() {
             socket.off('disconnect');
             socket.off('status');
             socket.off('audio_data');
+            socket.off('cad_data');
+            socket.off('browser_frame');
+            socket.off('transcription');
             stopMicVisualizer();
             stopVideo();
         };
@@ -619,7 +650,28 @@ function App() {
 
     const handleMinimize = () => ipcRenderer.send('window-minimize');
     const handleMaximize = () => ipcRenderer.send('window-maximize');
-    const handleClose = () => ipcRenderer.send('window-close');
+
+    // Intercept Close
+    const handleCloseRequest = () => {
+        setShowMemoryPrompt(true);
+    };
+
+    const handleConfirmSave = () => {
+        // Send messages to backend
+        socket.emit('save_memory', { messages: messages });
+        // Give it a short delay to emit before closing
+        setTimeout(() => {
+            ipcRenderer.send('window-close');
+        }, 500);
+    };
+
+    const handleDenySave = () => {
+        ipcRenderer.send('window-close');
+    };
+
+    const handleCancelClose = () => {
+        setShowMemoryPrompt(false);
+    };
 
     const updateElementPosition = (id, dx, dy) => {
         setElementPositions(prev => ({
@@ -697,7 +749,7 @@ function App() {
                     <button onClick={handleMaximize} className="p-1 hover:bg-cyan-900/50 rounded text-cyan-500 transition-colors">
                         <div className="w-[14px] h-[14px] border-2 border-current rounded-[2px]" />
                     </button>
-                    <button onClick={handleClose} className="p-1 hover:bg-red-900/50 rounded text-red-500 transition-colors">
+                    <button onClick={handleCloseRequest} className="p-1 hover:bg-red-900/50 rounded text-red-500 transition-colors">
                         <X size={18} />
                     </button>
                 </div>
@@ -870,6 +922,15 @@ function App() {
                         position={elementPositions.tools}
                     />
                 </div>
+
+                {/* Memory Prompt Modal */}
+                {showMemoryPrompt && (
+                    <MemoryPrompt
+                        onConfirm={handleConfirmSave}
+                        onDeny={handleDenySave}
+                        onCancel={handleCancelClose}
+                    />
+                )}
             </div>
         </div>
     );

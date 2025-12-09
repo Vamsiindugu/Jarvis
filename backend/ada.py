@@ -9,15 +9,13 @@ import cv2
 import pyaudio
 import PIL.Image
 import mss
-from google.genai import types
-
 import argparse
 
 from google import genai
+from google.genai import types
 
 if sys.version_info < (3, 11, 0):
     import taskgroup, exceptiongroup
-
     asyncio.TaskGroup = taskgroup.TaskGroup
     asyncio.ExceptionGroup = exceptiongroup.ExceptionGroup
 
@@ -30,7 +28,6 @@ RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE = 1024
 
 MODEL = "models/gemini-2.5-flash-native-audio-preview-09-2025"
-
 DEFAULT_MODE = "camera"
 
 load_dotenv()
@@ -64,8 +61,13 @@ run_web_agent = {
 }
 
 tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent]}]
+
+# --- CONFIG UPDATE: Enabled Transcription ---
 config = types.LiveConnectConfig(
     response_modalities=["AUDIO"],
+    # We switch these from [] to {} to enable them with default settings
+    output_audio_transcription={}, 
+    input_audio_transcription={},
     system_instruction="You are a helpful assistant named Ada and answer in a friendly tone.",
     tools=tools,
     speech_config=types.SpeechConfig(
@@ -83,12 +85,13 @@ from cad_agent import CadAgent
 from web_agent import WebAgent
 
 class AudioLoop:
-    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, input_device_index=None, output_device_index=None):
+    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, input_device_index=None, output_device_index=None):
         self.video_mode = video_mode
         self.on_audio_data = on_audio_data
         self.on_video_frame = on_video_frame
         self.on_cad_data = on_cad_data
         self.on_web_data = on_web_data
+        self.on_transcription = on_transcription # New Callback
         self.input_device_index = input_device_index
         self.output_device_index = output_device_index
 
@@ -125,7 +128,6 @@ class AudioLoop:
         while True:
             msg = await self.out_queue.get()
             await self.session.send(input=msg, end_of_turn=False)
-            # await self.session.send_realtime_input(inputs=[msg])
 
     async def listen_audio(self):
         mic_info = pya.get_default_input_device_info()
@@ -171,7 +173,6 @@ class AudioLoop:
                 print(f"[ADA DEBUG] 📨 Dispatch complete.")
             
             # Notify the model that the task is done, so it can tell the user
-            # We send this as a "User" message to prompt the model to speak
             completion_msg = "System Notification: CAD generation is complete. Inform the user that the model is ready."
             try:
                 await self.session.send(input=completion_msg, end_of_turn=True)
@@ -194,7 +195,7 @@ class AudioLoop:
             if self.on_web_data:
                  self.on_web_data({"image": image_b64, "log": log_text})
                  
-        # Run the web agent and wait for it to return (which now happens after browser close)
+        # Run the web agent and wait for it to return
         result = await self.web_agent.run_task(prompt, update_callback=update_frontend)
         print(f"[ADA DEBUG] 🌐 Web Agent Task Returned: {result}")
         
@@ -210,10 +211,28 @@ class AudioLoop:
             while True:
                 turn = self.session.receive()
                 async for response in turn:
+                    # 1. Handle Audio Data
                     if data := response.data:
                         self.audio_in_queue.put_nowait(data)
-                        continue
-                    
+                        # NOTE: 'continue' removed here to allow processing transcription/tools in same packet
+
+                    # 2. Handle Transcription (User & Model)
+                    if response.server_content:
+                        if response.server_content.input_transcription:
+                            transcript = response.server_content.input_transcription.text
+                            if transcript:
+                                # Send to frontend instead of print
+                                if self.on_transcription:
+                                     self.on_transcription({"sender": "User", "text": transcript})
+                        
+                        if response.server_content.output_transcription:
+                            transcript = response.server_content.output_transcription.text
+                            if transcript:
+                                # Send to frontend instead of print
+                                if self.on_transcription:
+                                     self.on_transcription({"sender": "ADA", "text": transcript})
+
+                    # 3. Handle Tool Calls
                     if response.tool_call:
                         print("The tool was called")
                         function_responses = []
@@ -223,9 +242,7 @@ class AudioLoop:
                                 print(f"\n[ADA DEBUG] --------------------------------------------------")
                                 print(f"[ADA DEBUG] 🛠️ Tool Call Detected: 'generate_cad'")
                                 print(f"[ADA DEBUG] 📥 Arguments: prompt='{prompt}'")
-                                print(f"[ADA DEBUG] 🚀 Spawning CadAgent.generate_prototype() in background...")
-
-                                # Fire and forget (task will notify when done)
+                                
                                 asyncio.create_task(self.handle_cad_request(prompt))
                                 
                                 result_text = "CAD calibration started. The model is being generated in the background. Do not reply to this message."
@@ -261,6 +278,7 @@ class AudioLoop:
                     self.audio_in_queue.get_nowait()
         except Exception as e:
             print(f"Error in receive_audio: {e}")
+            traceback.print_exc()
 
     async def play_audio(self):
         stream = await asyncio.to_thread(
@@ -278,15 +296,6 @@ class AudioLoop:
             await asyncio.to_thread(stream.write, bytestream)
 
     async def get_frames(self):
-        # Placeholder if camera mode is handled by frontend sending frames, 
-        # but if this mode is 'camera' AND we want backend to grab frames (unlikely with frontend video feed),
-        # we can implement it. 
-        # However, Ada v2 architecture seems to rely on frontend sending frames for 'camera'.
-        # But 'server.py' sets video_mode="none" by default!
-        # If video_mode is "none", this task isn't started (logic in run()).
-        # server.py calls send_frame explicitly.
-        # So we don't strictly need this unless running standalone.
-        # I'll include the basic version from test.py just in case.
         cap = await asyncio.to_thread(cv2.VideoCapture, 0)
         while True:
             if self.paused:
@@ -314,7 +323,6 @@ class AudioLoop:
         return {"mime_type": "image/jpeg", "data": base64.b64encode(image_bytes).decode()}
 
     async def _get_screen(self):
-        # Not fully needed given server.py logic but good for completeness
         pass 
     async def get_screen(self):
          pass
@@ -328,7 +336,8 @@ class AudioLoop:
                 self.session = session
 
                 self.audio_in_queue = asyncio.Queue()
-                self.out_queue = asyncio.Queue(maxsize=5)
+                # Increased queue size slightly to prevent drops during tool calls
+                self.out_queue = asyncio.Queue(maxsize=10)
 
                 tg.create_task(self.send_realtime())
                 tg.create_task(self.listen_audio())
