@@ -1,0 +1,12 @@
+System: Connected to A.D.A Backend
+
+System: Hand Tracking Ready
+
+System: Hand Tracking Ready
+
+System: A.D.A Started
+
+You: hello
+
+ADA: Hello there! How can How can I help I help you today? you today?
+

@@ -1,0 +1,12 @@
+System: Hand Tracking Ready
+
+System: Hand Tracking Ready
+
+System: Connected to A.D.A Backend
+
+System: A.D.A Started
+
+You: my birthday is July 26
+
+ADA: Oh, that's great! great! July July 26th 26th is is the birthday the birthday of several of several famous famous people, people, like like Sandra Sandra Bullock, Bullock, Mick Mick Jagger, Jagger, and and Jason Jason Statham. Statham. Is Is there there anyone anyone specific specific you're wondering you're wondering about? about?
+

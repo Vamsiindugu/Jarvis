@@ -167,12 +167,25 @@ async def save_memory(sid, data):
         memory_dir.mkdir(exist_ok=True)
 
         # Generate filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = memory_dir / f"memory_{timestamp}.json"
+        # Use provided filename if available, else timestamp
+        provided_name = data.get('filename')
+        
+        if provided_name:
+            # Simple sanitization
+            if not provided_name.endswith('.txt'):
+                provided_name += '.txt'
+            # Prevent directory traversal
+            filename = memory_dir / Path(provided_name).name 
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = memory_dir / f"memory_{timestamp}.txt"
 
         # Write to file
         with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(messages, f, indent=4)
+            for msg in messages:
+                sender = msg.get('sender', 'Unknown')
+                text = msg.get('text', '')
+                f.write(f"{sender}: {text}\n\n")
         
         print(f"Conversation saved to {filename}")
         await sio.emit('status', {'msg': 'Memory Saved Successfully'})
@@ -180,6 +193,37 @@ async def save_memory(sid, data):
     except Exception as e:
         print(f"Error saving memory: {e}")
         await sio.emit('error', {'msg': f"Failed to save memory: {str(e)}"})
+
+@sio.event
+async def upload_memory(sid, data):
+    print(f"Received memory upload request")
+    try:
+        memory_text = data.get('memory', '')
+        if not memory_text:
+            print("No memory data provided.")
+            return
+
+        if not audio_loop:
+             print("[SERVER DEBUG] [Error] Audio loop is None. Cannot load memory.")
+             await sio.emit('error', {'msg': "System not ready (Audio Loop inactive)"})
+             return
+        
+        if not audio_loop.session:
+             print("[SERVER DEBUG] [Error] Session is None. Cannot load memory.")
+             await sio.emit('error', {'msg': "System not ready (No active session)"})
+             return
+
+        # Send to model
+        print("Sending memory context to model...")
+        context_msg = f"System Notification: The user has uploaded a long-term memory file. Please load the following context into your understanding. The format is a text log of previous conversations:\n\n{memory_text}"
+        
+        await audio_loop.session.send(input=context_msg, end_of_turn=True)
+        print("Memory context sent successfully.")
+        await sio.emit('status', {'msg': 'Memory Loaded into Context'})
+
+    except Exception as e:
+        print(f"Error uploading memory: {e}")
+        await sio.emit('error', {'msg': f"Failed to upload memory: {str(e)}"})
 
 if __name__ == "__main__":
     uvicorn.run(app_socketio, host="127.0.0.1", port=8000)
