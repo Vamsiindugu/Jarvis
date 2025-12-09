@@ -85,13 +85,14 @@ from cad_agent import CadAgent
 from web_agent import WebAgent
 
 class AudioLoop:
-    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, input_device_index=None, output_device_index=None):
+    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, input_device_index=None, output_device_index=None):
         self.video_mode = video_mode
         self.on_audio_data = on_audio_data
         self.on_video_frame = on_video_frame
         self.on_cad_data = on_cad_data
         self.on_web_data = on_web_data
-        self.on_transcription = on_transcription # New Callback
+        self.on_transcription = on_transcription
+        self.on_tool_confirmation = on_tool_confirmation # New Callback
         self.input_device_index = input_device_index
         self.output_device_index = output_device_index
 
@@ -106,12 +107,24 @@ class AudioLoop:
 
         self.send_text_task = None
         self.stop_event = asyncio.Event()
+        
+        self._pending_confirmations = {}
 
     def set_paused(self, paused):
         self.paused = paused
 
     def stop(self):
         self.stop_event.set()
+        
+    def resolve_tool_confirmation(self, request_id, confirmed):
+        if request_id in self._pending_confirmations:
+            future = self._pending_confirmations[request_id]
+            if not future.done():
+                future.set_result(confirmed)
+            else:
+                 print(f"[ADA DEBUG] ⚠️ Request {request_id} already resolved.")
+        else:
+            print(f"[ADA DEBUG] ⚠️ Confirmation Request {request_id} not found.")
 
     async def send_frame(self, frame_data):
         if not self.out_queue:
@@ -237,40 +250,78 @@ class AudioLoop:
                         print("The tool was called")
                         function_responses = []
                         for fc in response.tool_call.function_calls:
-                            if fc.name == "generate_cad":
+                            if fc.name in ["generate_cad", "run_web_agent"]:
                                 prompt = fc.args["prompt"]
-                                print(f"\n[ADA DEBUG] --------------------------------------------------")
-                                print(f"[ADA DEBUG] 🛠️ Tool Call Detected: 'generate_cad'")
-                                print(f"[ADA DEBUG] 📥 Arguments: prompt='{prompt}'")
                                 
-                                asyncio.create_task(self.handle_cad_request(prompt))
-                                
-                                result_text = "CAD calibration started. The model is being generated in the background. Do not reply to this message."
-                                function_response = types.FunctionResponse(
-                                    id=fc.id,
-                                    name=fc.name,
-                                    response={
-                                        "result": result_text,
-                                        "scheduling": "INTERRUPT"
-                                    }
-                                )
-                                function_responses.append(function_response)
+                                # Confirmation Logic
+                                if self.on_tool_confirmation:
+                                    import uuid
+                                    request_id = str(uuid.uuid4())
+                                    print(f"[ADA DEBUG] 🛑 Requesting confirmation for '{fc.name}' (ID: {request_id})")
+                                    
+                                    future = asyncio.Future()
+                                    self._pending_confirmations[request_id] = future
+                                    
+                                    self.on_tool_confirmation({
+                                        "id": request_id, 
+                                        "tool": fc.name, 
+                                        "args": fc.args
+                                    })
+                                    
+                                    try:
+                                        # Wait for user response
+                                        confirmed = await future
+                                    except Exception as e:
+                                        print(f"[ADA DEBUG] ⚠️ Confirmation wait error: {e}")
+                                        confirmed = False
+                                    finally:
+                                        self._pending_confirmations.pop(request_id, None)
 
-                            elif fc.name == "run_web_agent":
-                                prompt = fc.args["prompt"]
-                                print(f"[ADA DEBUG] 🛠️ Tool Call: 'run_web_agent' with prompt='{prompt}'")
-                                asyncio.create_task(self.handle_web_agent_request(prompt))
+                                    if not confirmed:
+                                        print(f"[ADA DEBUG] 🚫 Tool call '{fc.name}' denied by user.")
+                                        function_response = types.FunctionResponse(
+                                            id=fc.id,
+                                            name=fc.name,
+                                            response={
+                                                "result": "User denied the request to use this tool.",
+                                            }
+                                        )
+                                        function_responses.append(function_response)
+                                        continue
+
+                                # If confirmed (or no callback configured), proceed
+                                if fc.name == "generate_cad":
+                                    print(f"\n[ADA DEBUG] --------------------------------------------------")
+                                    print(f"[ADA DEBUG] 🛠️ Tool Call Detected: 'generate_cad'")
+                                    print(f"[ADA DEBUG] 📥 Arguments: prompt='{prompt}'")
+                                    
+                                    asyncio.create_task(self.handle_cad_request(prompt))
+                                    
+                                    result_text = "CAD calibration started. The model is being generated in the background. Do not reply to this message."
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id,
+                                        name=fc.name,
+                                        response={
+                                            "result": result_text,
+                                            "scheduling": "INTERRUPT"
+                                        }
+                                    )
+                                    function_responses.append(function_response)
                                 
-                                result_text = "Web Navigation started. Do not reply to this message."
-                                function_response = types.FunctionResponse(
-                                    id=fc.id,
-                                    name=fc.name,
-                                    response={
-                                        "result": result_text,
-                                        "scheduling": "INTERRUPT"
-                                    }
-                                )
-                                function_responses.append(function_response)
+                                elif fc.name == "run_web_agent":
+                                    print(f"[ADA DEBUG] 🛠️ Tool Call: 'run_web_agent' with prompt='{prompt}'")
+                                    asyncio.create_task(self.handle_web_agent_request(prompt))
+                                    
+                                    result_text = "Web Navigation started. Do not reply to this message."
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id,
+                                        name=fc.name,
+                                        response={
+                                            "result": result_text,
+                                            "scheduling": "INTERRUPT"
+                                        }
+                                    )
+                                    function_responses.append(function_response)
 
                         await self.session.send_tool_response(function_responses=function_responses)
 

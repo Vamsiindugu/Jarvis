@@ -10,6 +10,7 @@ import ToolsModule from './components/ToolsModule';
 import { Mic, MicOff, Settings, X, Minus, Power, Video, VideoOff, Layout, Hand } from 'lucide-react';
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import MemoryPrompt from './components/MemoryPrompt';
+import ConfirmationPopup from './components/ConfirmationPopup';
 
 const socket = io('http://localhost:8000');
 const { ipcRenderer } = window.require('electron');
@@ -24,6 +25,7 @@ function App() {
     const [cadData, setCadData] = useState(null);
     const [browserData, setBrowserData] = useState({ image: null, logs: [] });
     const [showMemoryPrompt, setShowMemoryPrompt] = useState(false);
+    const [confirmationRequest, setConfirmationRequest] = useState(null); // { id, tool, args }
 
     // RESTORED STATE
     const [aiAudioData, setAiAudioData] = useState(new Array(64).fill(0));
@@ -203,6 +205,12 @@ function App() {
             });
         });
 
+        // Handle tool confirmation requests
+        socket.on('tool_confirmation_request', (data) => {
+            console.log("Received Confirmation Request:", data);
+            setConfirmationRequest(data);
+        });
+
         // Get Audio Devices
         navigator.mediaDevices.enumerateDevices().then(devs => {
             const audioInputs = devs.filter(d => d.kind === 'audioinput');
@@ -258,6 +266,7 @@ function App() {
             socket.off('cad_data');
             socket.off('browser_frame');
             socket.off('transcription');
+            socket.off('tool_confirmation_request');
             stopMicVisualizer();
             stopVideo();
         };
@@ -696,6 +705,20 @@ function App() {
         setShowMemoryPrompt(false);
     };
 
+    const handleConfirmTool = () => {
+        if (confirmationRequest) {
+            socket.emit('confirm_tool', { id: confirmationRequest.id, confirmed: true });
+            setConfirmationRequest(null);
+        }
+    };
+
+    const handleDenyTool = () => {
+        if (confirmationRequest) {
+            socket.emit('confirm_tool', { id: confirmationRequest.id, confirmed: false });
+            setConfirmationRequest(null);
+        }
+    };
+
     const updateElementPosition = (id, dx, dy) => {
         setElementPositions(prev => ({
             ...prev,
@@ -967,6 +990,13 @@ function App() {
                         onCancel={handleCancelClose}
                     />
                 )}
+
+                {/* Tool Confirmation Modal */}
+                <ConfirmationPopup
+                    request={confirmationRequest}
+                    onConfirm={handleConfirmTool}
+                    onDeny={handleDenyTool}
+                />
             </div>
         </div>
     );

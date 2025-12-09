@@ -72,6 +72,12 @@ async def start_audio(sid, data=None):
         # data = {"sender": "User"|"ADA", "text": "..."}
         asyncio.create_task(sio.emit('transcription', data))
 
+    # Callback to send Confirmation Request to frontend
+    def on_tool_confirmation(data):
+        # data = {"id": "uuid", "tool": "tool_name", "args": {...}}
+        print(f"Requesting confirmation for tool: {data.get('tool')}")
+        asyncio.create_task(sio.emit('tool_confirmation_request', data))
+
     # Initialize ADA
     try:
         audio_loop = ada.AudioLoop(
@@ -80,6 +86,7 @@ async def start_audio(sid, data=None):
             on_cad_data=on_cad_data,
             on_web_data=on_web_data,
             on_transcription=on_transcription,
+            on_tool_confirmation=on_tool_confirmation,
             input_device_index=device_index
         )
         
@@ -119,6 +126,19 @@ async def resume_audio(sid):
         audio_loop.set_paused(False)
         print("Resuming Audio")
         await sio.emit('status', {'msg': 'Audio Resumed'})
+
+@sio.event
+async def confirm_tool(sid, data):
+    # data: { "id": "...", "confirmed": True/False }
+    request_id = data.get('id')
+    confirmed = data.get('confirmed', False)
+    
+    print(f"Received confirmation response for {request_id}: {confirmed}")
+    
+    if audio_loop:
+        audio_loop.resolve_tool_confirmation(request_id, confirmed)
+    else:
+        print("Audio loop not active, cannot resolve confirmation.")
 
 @sio.event
 async def user_input(sid, data):
