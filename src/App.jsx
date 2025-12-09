@@ -11,12 +11,14 @@ import { Mic, MicOff, Settings, X, Minus, Power, Video, VideoOff, Layout, Hand }
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import MemoryPrompt from './components/MemoryPrompt';
 import ConfirmationPopup from './components/ConfirmationPopup';
+import AuthLock from './components/AuthLock';
 
 const socket = io('http://localhost:8000');
 const { ipcRenderer } = window.require('electron');
 
 function App() {
     const [status, setStatus] = useState('Disconnected');
+    const [isAuthenticated, setIsAuthenticated] = useState(false); // Auth State
     const [isConnected, setIsConnected] = useState(true); // Power state DEFAULT ON
     const [isMuted, setIsMuted] = useState(true); // Mic state DEFAULT MUTED
     const [isVideoOn, setIsVideoOn] = useState(false); // Video state
@@ -736,6 +738,8 @@ function App() {
         <div className="h-screen w-screen bg-black text-cyan-100 font-mono overflow-hidden flex flex-col relative selection:bg-cyan-900 selection:text-white">
 
             {/* --- PREMIUM UI LAYER --- */}
+
+            {!isAuthenticated && <AuthLock socket={socket} onAuthenticated={setIsAuthenticated} />}
 
             {/* --- PREMIUM UI LAYER --- */}
 

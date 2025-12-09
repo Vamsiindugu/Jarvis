@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import ada
+from authenticator import FaceAuthenticator
 
 # Create a Socket.IO server
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
@@ -22,6 +23,7 @@ app_socketio = socketio.ASGIApp(sio, app)
 # Global state
 audio_loop = None
 loop_task = None
+authenticator = None
 
 @app.get("/status")
 async def status():
@@ -32,6 +34,33 @@ async def connect(sid, environ):
     print(f"Client connected: {sid}")
     await sio.emit('status', {'msg': 'Connected to A.D.A Backend'}, room=sid)
 
+    global authenticator
+    
+    # Callback for Auth Status
+    async def on_auth_status(is_auth):
+        print(f"[SERVER] Auth status change: {is_auth}")
+        await sio.emit('auth_status', {'authenticated': is_auth})
+
+    # Callback for Auth Camera Frames
+    async def on_auth_frame(frame_b64):
+        await sio.emit('auth_frame', {'image': frame_b64})
+
+    # Initialize Authenticator if not already done
+    if authenticator is None:
+        authenticator = FaceAuthenticator(
+            reference_image_path="reference.jpg",
+            on_status_change=on_auth_status,
+            on_frame=on_auth_frame
+        )
+    
+    # Check if already authenticated or needs to start
+    if authenticator.authenticated:
+        await sio.emit('auth_status', {'authenticated': True})
+    else:
+        await sio.emit('auth_status', {'authenticated': False})
+        # Start the auth loop in background
+        asyncio.create_task(authenticator.start_authentication_loop())
+
 @sio.event
 async def disconnect(sid):
     print(f"Client disconnected: {sid}")
@@ -39,6 +68,13 @@ async def disconnect(sid):
 @sio.event
 async def start_audio(sid, data=None):
     global audio_loop, loop_task
+    
+    # Optional: Block if not authenticated
+    if authenticator and not authenticator.authenticated:
+        print("Blocked start_audio: Not authenticated.")
+        await sio.emit('error', {'msg': 'Authentication Required'})
+        return
+
     print("Starting Audio Loop...")
     
     device_index = None
