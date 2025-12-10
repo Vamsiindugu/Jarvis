@@ -25,7 +25,7 @@ class FaceAuthenticator:
 
     def _load_reference(self):
         if not os.path.exists(self.reference_image_path):
-            print(f"[AUTH] ⚠️ Reference file not found at {self.reference_image_path}. Authentication will fail.")
+            print(f"[AUTH] [WARN] Reference file not found at {self.reference_image_path}. Authentication will fail.")
             return
 
         try:
@@ -35,11 +35,11 @@ class FaceAuthenticator:
             
             if len(encodings) > 0:
                 self.reference_encoding = encodings[0]
-                print("[AUTH] ✅ Reference face encoded successfully.")
+                print("[AUTH] [OK] Reference face encoded successfully.")
             else:
-                print("[AUTH] ❌ No face found in reference image.")
+                print("[AUTH] [ERR] No face found in reference image.")
         except Exception as e:
-            print(f"[AUTH] ❌ Error loading reference: {e}")
+            print(f"[AUTH] [ERR] Error loading reference: {e}")
 
     async def start_authentication_loop(self):
         if self.authenticated:
@@ -49,7 +49,7 @@ class FaceAuthenticator:
             return
 
         if self.reference_encoding is None:
-             print("[AUTH] ❌ Cannot start auth loop: No reference encoding.")
+             print("[AUTH] [ERR] Cannot start auth loop: No reference encoding.")
              # Optionally trigger a failure state here
              return
 
@@ -88,7 +88,7 @@ class FaceAuthenticator:
                     
                     if True in matches:
                         self.authenticated = True
-                        print("[AUTH] 🔓 FACE RECOGNIZED! Access Granted.")
+                        print("[AUTH] [OPEN] FACE RECOGNIZED! Access Granted.")
                         if self.on_status_change:
                             # Run async callback safely from thread using the passed loop
                             asyncio.run_coroutine_threadsafe(self.on_status_change(True), loop)

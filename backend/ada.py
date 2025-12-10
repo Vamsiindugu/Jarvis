@@ -68,7 +68,11 @@ config = types.LiveConnectConfig(
     # We switch these from [] to {} to enable them with default settings
     output_audio_transcription={}, 
     input_audio_transcription={},
-    system_instruction="You are a helpful assistant named Ada and answer in a friendly tone.",
+    system_instruction="Your name is Ada, which stands for Advanced Design Assistant. "
+        "You have a witty and charming personality. "
+        "Your creator is Naz, and you address him as 'Sir'. "
+        "When answering, respond using complete and concise sentences to keep a quick pacing and keep the conversation flowing. "
+        "You have a fun personality.",
     tools=tools,
     speech_config=types.SpeechConfig(
         voice_config=types.VoiceConfig(
@@ -122,9 +126,9 @@ class AudioLoop:
             if not future.done():
                 future.set_result(confirmed)
             else:
-                 print(f"[ADA DEBUG] ⚠️ Request {request_id} already resolved.")
+                 print(f"[ADA DEBUG] [WARN] Request {request_id} already resolved.")
         else:
-            print(f"[ADA DEBUG] ⚠️ Confirmation Request {request_id} not found.")
+            print(f"[ADA DEBUG] [WARN] Confirmation Request {request_id} not found.")
 
     async def send_frame(self, frame_data):
         if not self.out_queue:
@@ -177,24 +181,24 @@ class AudioLoop:
         cad_data = await self.cad_agent.generate_prototype(prompt)
         
         if cad_data:
-            print(f"[ADA DEBUG] ✅ CadAgent returned data successfully.")
-            print(f"[ADA DEBUG] 📊 Data Check: {len(cad_data.get('vertices', []))} vertices, {len(cad_data.get('edges', []))} edges.")
+            print(f"[ADA DEBUG] [OK] CadAgent returned data successfully.")
+            print(f"[ADA DEBUG] [INFO] Data Check: {len(cad_data.get('vertices', []))} vertices, {len(cad_data.get('edges', []))} edges.")
             
             if self.on_cad_data:
-                print(f"[ADA DEBUG] 📡 Dispatching data to frontend callback...")
+                print(f"[ADA DEBUG] [SEND] Dispatching data to frontend callback...")
                 self.on_cad_data(cad_data)
-                print(f"[ADA DEBUG] 📨 Dispatch complete.")
+                print(f"[ADA DEBUG] [SENT] Dispatch complete.")
             
             # Notify the model that the task is done, so it can tell the user
             completion_msg = "System Notification: CAD generation is complete. Inform the user that the model is ready."
             try:
                 await self.session.send(input=completion_msg, end_of_turn=True)
-                print(f"[ADA DEBUG] 🔔 Sent completion notification to model.")
+                print(f"[ADA DEBUG] [NOTE] Sent completion notification to model.")
             except Exception as e:
-                 print(f"[ADA DEBUG] ❌ Failed to send completion notification: {e}")
+                 print(f"[ADA DEBUG] [ERR] Failed to send completion notification: {e}")
 
         else:
-            print(f"[ADA DEBUG] ❌ CadAgent returned None.")
+            print(f"[ADA DEBUG] [ERR] CadAgent returned None.")
             # Optionally notify failure
             try:
                 await self.session.send(input="System Notification: CAD generation failed.", end_of_turn=True)
@@ -216,7 +220,7 @@ class AudioLoop:
         try:
              await self.session.send(input=f"System Notification: Web Agent has finished.\nResult: {result}", end_of_turn=True)
         except Exception as e:
-             print(f"[ADA DEBUG] ❌ Failed to send web agent result to model: {e}")
+             print(f"[ADA DEBUG] [ERR] Failed to send web agent result to model: {e}")
 
     async def receive_audio(self):
         "Background task to reads from the websocket and write pcm chunks to the output queue"
@@ -257,7 +261,7 @@ class AudioLoop:
                                 if self.on_tool_confirmation:
                                     import uuid
                                     request_id = str(uuid.uuid4())
-                                    print(f"[ADA DEBUG] 🛑 Requesting confirmation for '{fc.name}' (ID: {request_id})")
+                                    print(f"[ADA DEBUG] [STOP] Requesting confirmation for '{fc.name}' (ID: {request_id})")
                                     
                                     future = asyncio.Future()
                                     self._pending_confirmations[request_id] = future
@@ -272,13 +276,13 @@ class AudioLoop:
                                         # Wait for user response
                                         confirmed = await future
                                     except Exception as e:
-                                        print(f"[ADA DEBUG] ⚠️ Confirmation wait error: {e}")
+                                        print(f"[ADA DEBUG] [WARN] Confirmation wait error: {e}")
                                         confirmed = False
                                     finally:
                                         self._pending_confirmations.pop(request_id, None)
 
                                     if not confirmed:
-                                        print(f"[ADA DEBUG] 🚫 Tool call '{fc.name}' denied by user.")
+                                        print(f"[ADA DEBUG] [DENY] Tool call '{fc.name}' denied by user.")
                                         function_response = types.FunctionResponse(
                                             id=fc.id,
                                             name=fc.name,
@@ -292,8 +296,8 @@ class AudioLoop:
                                 # If confirmed (or no callback configured), proceed
                                 if fc.name == "generate_cad":
                                     print(f"\n[ADA DEBUG] --------------------------------------------------")
-                                    print(f"[ADA DEBUG] 🛠️ Tool Call Detected: 'generate_cad'")
-                                    print(f"[ADA DEBUG] 📥 Arguments: prompt='{prompt}'")
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call Detected: 'generate_cad'")
+                                    print(f"[ADA DEBUG] [IN] Arguments: prompt='{prompt}'")
                                     
                                     asyncio.create_task(self.handle_cad_request(prompt))
                                     
@@ -309,7 +313,7 @@ class AudioLoop:
                                     function_responses.append(function_response)
                                 
                                 elif fc.name == "run_web_agent":
-                                    print(f"[ADA DEBUG] 🛠️ Tool Call: 'run_web_agent' with prompt='{prompt}'")
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'run_web_agent' with prompt='{prompt}'")
                                     asyncio.create_task(self.handle_web_agent_request(prompt))
                                     
                                     result_text = "Web Navigation started. Do not reply to this message."

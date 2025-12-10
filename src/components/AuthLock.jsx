@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Lock, ScanFace } from 'lucide-react';
+import { Lock, User } from 'lucide-react';
 
 const AuthLock = ({ socket, onAuthenticated }) => {
     const [frameSrc, setFrameSrc] = useState(null);
@@ -54,7 +54,7 @@ const AuthLock = ({ socket, onAuthenticated }) => {
                         />
                     ) : (
                         <div className="animate-pulse text-cyan-800">
-                            <ScanFace size={64} />
+                            <User size={64} />
                         </div>
                     )}
 

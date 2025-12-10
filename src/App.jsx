@@ -133,8 +133,9 @@ function App() {
     }, []);
 
     // Auto-Connect Model on Start
+    // Auto-Connect Model on Start (Only after Auth)
     useEffect(() => {
-        if (isConnected) {
+        if (isConnected && isAuthenticated) {
             // Wait brief moment for socket to stabilize/devices to load, then connect
             const timer = setTimeout(() => {
                 const index = devices.findIndex(d => d.deviceId === selectedDeviceId);
@@ -146,7 +147,7 @@ function App() {
             }, 1000);
             return () => clearTimeout(timer);
         }
-    }, [isConnected, devices, selectedDeviceId]); // Re-run if these change, but primarily for initial load
+    }, [isConnected, isAuthenticated, devices, selectedDeviceId]); // Added isAuthenticated dependency
 
     useEffect(() => {
         // Socket IO Setup
