@@ -382,7 +382,7 @@ class AudioLoop:
     async def get_screen(self):
          pass
 
-    async def run(self):
+    async def run(self, start_message=None):
         try:
             async with (
                 client.aio.live.connect(model=MODEL, config=config) as session,
@@ -404,6 +404,10 @@ class AudioLoop:
 
                 tg.create_task(self.receive_audio())
                 tg.create_task(self.play_audio())
+
+                if start_message:
+                    print(f"[ADA DEBUG] [INFO] Sending start message: {start_message}")
+                    await self.session.send(input=start_message, end_of_turn=True)
 
                 await self.stop_event.wait()
 

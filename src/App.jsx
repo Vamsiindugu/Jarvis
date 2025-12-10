@@ -18,7 +18,11 @@ const { ipcRenderer } = window.require('electron');
 
 function App() {
     const [status, setStatus] = useState('Disconnected');
-    const [isAuthenticated, setIsAuthenticated] = useState(false); // Auth State
+    // Auth State
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [isLockScreenVisible, setIsLockScreenVisible] = useState(true);
+
+
     const [isConnected, setIsConnected] = useState(true); // Power state DEFAULT ON
     const [isMuted, setIsMuted] = useState(true); // Mic state DEFAULT MUTED
     const [isVideoOn, setIsVideoOn] = useState(false); // Video state
@@ -740,7 +744,15 @@ function App() {
 
             {/* --- PREMIUM UI LAYER --- */}
 
-            {!isAuthenticated && <AuthLock socket={socket} onAuthenticated={setIsAuthenticated} />}
+            {/* --- PREMIUM UI LAYER --- */}
+
+            {isLockScreenVisible && (
+                <AuthLock
+                    socket={socket}
+                    onAuthenticated={() => setIsAuthenticated(true)}
+                    onAnimationComplete={() => setIsLockScreenVisible(false)}
+                />
+            )}
 
             {/* --- PREMIUM UI LAYER --- */}
 

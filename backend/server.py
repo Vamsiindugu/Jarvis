@@ -131,7 +131,9 @@ async def start_audio(sid, data=None):
             print("Starting with Audio Paused")
             audio_loop.set_paused(True)
 
-        loop_task = asyncio.create_task(audio_loop.run())
+        loop_task = asyncio.create_task(audio_loop.run(
+            start_message="System: User successfully authenticated via facial recognition. Access granted. Greet the user."
+        ))
         await sio.emit('status', {'msg': 'A.D.A Started'})
 
     except Exception as e:
