@@ -171,7 +171,7 @@ async def confirm_tool(sid, data):
     request_id = data.get('id')
     confirmed = data.get('confirmed', False)
     
-    print(f"Received confirmation response for {request_id}: {confirmed}")
+    print(f"[SERVER DEBUG] Received confirmation response for {request_id}: {confirmed}")
     
     if audio_loop:
         audio_loop.resolve_tool_confirmation(request_id, confirmed)

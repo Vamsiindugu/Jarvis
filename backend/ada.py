@@ -121,14 +121,16 @@ class AudioLoop:
         self.stop_event.set()
         
     def resolve_tool_confirmation(self, request_id, confirmed):
+        print(f"[ADA DEBUG] [RESOLVE] resolve_tool_confirmation called. ID: {request_id}, Confirmed: {confirmed}")
         if request_id in self._pending_confirmations:
             future = self._pending_confirmations[request_id]
             if not future.done():
+                print(f"[ADA DEBUG] [RESOLVE] Future found and pending. Setting result to: {confirmed}")
                 future.set_result(confirmed)
             else:
-                 print(f"[ADA DEBUG] [WARN] Request {request_id} already resolved.")
+                 print(f"[ADA DEBUG] [WARN] Request {request_id} future already done. Result: {future.result()}")
         else:
-            print(f"[ADA DEBUG] [WARN] Confirmation Request {request_id} not found.")
+            print(f"[ADA DEBUG] [WARN] Confirmation Request {request_id} not found in pending dict. Keys: {list(self._pending_confirmations.keys())}")
 
     async def send_frame(self, frame_data):
         if not self.out_queue:
@@ -176,7 +178,7 @@ class AudioLoop:
                 await asyncio.sleep(0.1)
 
     async def handle_cad_request(self, prompt):
-        print(f"[ADA DEBUG] 🧵 Background Task Started: handle_cad_request('{prompt}')")
+        print(f"[ADA DEBUG] [CAD] Background Task Started: handle_cad_request('{prompt}')")
         # Call the secondary agent
         cad_data = await self.cad_agent.generate_prototype(prompt)
         
@@ -206,7 +208,7 @@ class AudioLoop:
                 pass
 
     async def handle_web_agent_request(self, prompt):
-        print(f"[ADA DEBUG] 🌐 Web Agent Task: '{prompt}'")
+        print(f"[ADA DEBUG] [WEB] Web Agent Task: '{prompt}'")
         
         async def update_frontend(image_b64, log_text):
             if self.on_web_data:
@@ -214,7 +216,7 @@ class AudioLoop:
                  
         # Run the web agent and wait for it to return
         result = await self.web_agent.run_task(prompt, update_callback=update_frontend)
-        print(f"[ADA DEBUG] 🌐 Web Agent Task Returned: {result}")
+        print(f"[ADA DEBUG] [WEB] Web Agent Task Returned: {result}")
         
         # Send the final result back to the main model
         try:
@@ -275,11 +277,11 @@ class AudioLoop:
                                     try:
                                         # Wait for user response
                                         confirmed = await future
-                                    except Exception as e:
-                                        print(f"[ADA DEBUG] [WARN] Confirmation wait error: {e}")
-                                        confirmed = False
+
                                     finally:
                                         self._pending_confirmations.pop(request_id, None)
+
+                                    print(f"[ADA DEBUG] [CONFIRM] Request {request_id} resolved. Confirmed: {confirmed}")
 
                                     if not confirmed:
                                         print(f"[ADA DEBUG] [DENY] Tool call '{fc.name}' denied by user.")
@@ -307,9 +309,9 @@ class AudioLoop:
                                         name=fc.name,
                                         response={
                                             "result": result_text,
-                                            "scheduling": "INTERRUPT"
                                         }
                                     )
+                                    print(f"[ADA DEBUG] [RESPONSE] Sending function response: {function_response}")
                                     function_responses.append(function_response)
                                 
                                 elif fc.name == "run_web_agent":
@@ -322,9 +324,9 @@ class AudioLoop:
                                         name=fc.name,
                                         response={
                                             "result": result_text,
-                                            "scheduling": "INTERRUPT"
                                         }
                                     )
+                                    print(f"[ADA DEBUG] [RESPONSE] Sending function response: {function_response}")
                                     function_responses.append(function_response)
 
                         await self.session.send_tool_response(function_responses=function_responses)

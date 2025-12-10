@@ -42,14 +42,14 @@ class WebAgent:
             call_id = getattr(call, 'id', None)
             fn_name = call.name
             args = call.args
-            print(f"🤖 Action: {fn_name} {args}")
+            print(f"[ACTION] Action: {fn_name} {args}")
 
             # --- SAFETY CHECK ---
             requires_acknowledgement = False
             if "safety_decision" in args:
                  decision = args["safety_decision"]
                  if decision.get("decision") == "require_confirmation":
-                     print(f"   🛡️ Safety Alert: {decision.get('explanation')}")
+                     print(f"   [SAFETY] Safety Alert: {decision.get('explanation')}")
                      print("   -> Auto-acknowledging to proceed.")
                      requires_acknowledgement = True
 
@@ -136,13 +136,13 @@ class WebAgent:
                     await self.page.mouse.wheel(dx, dy)
 
                 else:
-                    print(f"⚠️ Warning: Model requested unimplemented function {fn_name}")
+                    print(f"[WARN] Warning: Model requested unimplemented function {fn_name}")
 
                 # Wait a moment for UI to settle
                 await asyncio.sleep(1)
                 
             except Exception as e:
-                print(f"❌ Error executing {fn_name}: {e}")
+                print(f"[ERR] Error executing {fn_name}: {e}")
                 result_data = {"error": str(e)}
 
             # Add the acknowledgement flag if needed
@@ -189,7 +189,7 @@ class WebAgent:
         update_callback: async function(screenshot_b64: str, logs: str)
         Returns the final response from the agent.
         """
-        print(f"✨ WebAgent started. Goal: {prompt}")
+        print(f"[START] WebAgent started. Goal: {prompt}")
         final_response = "Agent finished without a final summary."
 
         async with async_playwright() as p:
@@ -245,13 +245,13 @@ class WebAgent:
                         config=config
                     )
                 except Exception as e:
-                    print(f"🔥 Critical API Error: {e}")
+                    print(f"[CRITICAL] Critical API Error: {e}")
                     if update_callback: await update_callback(None, f"Error: {e}")
                     break
                 
                 # Check for empty response
                 if not response.candidates:
-                    print("⚠️ Model returned no content.")
+                    print("[WARN] Model returned no content.")
                     break
                 
                 candidate = response.candidates[0]
@@ -265,10 +265,10 @@ class WebAgent:
                 
                 for part in model_content.parts:
                     if part.thought:
-                        print(f"🧠 Thought: {part.text}")
+                        print(f"[THOUGHT] Thought: {part.text}")
                         thought_text += f"[Thoughts] {part.text}\n"
                     elif part.text:
-                        print(f"🗣️ Agent: {part.text}")
+                        print(f"[AGENT] Agent: {part.text}")
                         thought_text += f"[Agent] {part.text}\n"
                         agent_text = part.text
                     if part.function_call:
@@ -285,7 +285,7 @@ class WebAgent:
                 
                 if not function_calls:
                     if not has_tool_use:
-                        print("✅ Task finished details.")
+                        print("[DONE] Task finished details.")
                         if update_callback: await update_callback(None, "Task Finished")
                         break
                     else:
@@ -296,7 +296,7 @@ class WebAgent:
                 results = await self.execute_function_calls(function_calls)
                 
                 # Capture new state
-                print("📸 Capturing new state...")
+                print("[SNAP] Capturing new state...")
                 function_responses, screenshot_bytes = await self.get_function_responses(results)
                 
                 # Update frontend
@@ -311,7 +311,7 @@ class WebAgent:
                 chat_history.append(types.Content(role="user", parts=response_parts))
 
             await self.browser.close()
-            print("🔒 Browser closed.")
+            print("[CLOSE] Browser closed.")
             return final_response
 
 if __name__ == "__main__":

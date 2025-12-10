@@ -1,0 +1,24 @@
+System: Hand Tracking Ready
+
+System: Hand Tracking Ready
+
+System: Connected to A.D.A Backend
+
+System: A.D.A Started
+
+ADA: Greetings. It is wonderful is wonderful to see to see you you again. again.
+
+System: Audio Resumed
+
+User:  Etata, can, can, can, can, can, can, can, can go go on to on to Ama Amazonzon ad add ad a 2 255 k kgg ser servovo mo motor to my cart?tor to my cart?
+
+ADA: Sir, I'm currently unable to add items to your Amazon cart. While I can currently unable to add items to your Amazon cart. While I can help help with finding information with finding information or or generating generating designs, direct interaction designs, direct interaction with websites and adding products isn't a feature yet. with websites and adding products isn't a feature yet.Ah, itAh, it seems seems I was I was unable unable to complete to complete that that request. request. Is there Is there another another way way I can I can help help you today? you today?
+
+User:  Well,, wha what wast was the the error that you got back? error that you got back?
+
+ADA: Sir, I encountered encountered an an error error when when trying trying to access to access the the Amazon Amazon site site and and modify modify your your cart. cart. It was It was unable unable to to initiate initiate the requested the requested action. action.
+
+User:  Do you know why?
+
+ADA: While I attempted to add the servo motor, the attempt was not successful. I can't attempted to add the servo motor, the attempt was not successful. I can't at this at this moment determine the precise reason for the moment determine the precise reason for the error. error.Is thereIs there another another task task I can assist I can assist you with you with regarding regarding servo servo motors motors or or anything anything else? else?
+

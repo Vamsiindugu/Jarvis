@@ -33,7 +33,7 @@ Requirements:
         Generates 3D geometry for the given prompt using Gemini Code Execution.
         Returns a dictionary with 'vertices' and 'edges' lists.
         """
-        print(f"[CadAgent DEBUG] 🤖 Generation started for: '{prompt}'")
+        print(f"[CadAgent DEBUG] [START] Generation started for: '{prompt}'")
         
         try:
             response = await self.client.aio.models.generate_content(
@@ -56,39 +56,39 @@ Requirements:
                 for part in response.candidates[0].content.parts:
                     if part.code_execution_result:
                         output = part.code_execution_result.output.strip()
-                        print(f"[CadAgent DEBUG] 🐍 Code Execution Complete.")
-                        print(f"[CadAgent DEBUG] 📄 Raw Output Length: {len(output)} chars")
+                        print(f"[CadAgent DEBUG] [CODE] Code Execution Complete.")
+                        print(f"[CadAgent DEBUG] [INFO] Raw Output Length: {len(output)} chars")
                         
                         # Try to parse the output as JSON
                         try:
                             # Sometimes there might be extra print statements, so we look for valid JSON start/end or just try parsing
                             result = json.loads(output)
-                            print(f"[CadAgent DEBUG] 🧬 JSON Parsed Successfully (Direct).")
+                            print(f"[CadAgent DEBUG] [JSON] JSON Parsed Successfully (Direct).")
                         except json.JSONDecodeError:
-                            print("[CadAgent DEBUG] ⚠️ Direct JSON parsing failed. Attempting regex extraction...")
+                            print("[CadAgent DEBUG] [WARN] Direct JSON parsing failed. Attempting regex extraction...")
                             # Basic attempt to find JSON block if mixed with text
                             import re
                             match = re.search(r'\{.*"vertices".*\}', output, re.DOTALL)
                             if match:
                                 try:
                                     result = json.loads(match.group(0))
-                                    print(f"[CadAgent DEBUG] 🧬 JSON Parsed Successfully (Regex).")
+                                    print(f"[CadAgent DEBUG] [JSON] JSON Parsed Successfully (Regex).")
                                 except:
-                                    print("[CadAgent DEBUG] ❌ Regex extraction failed.")
+                                    print("[CadAgent DEBUG] [ERR] Regex extraction failed.")
                                     pass
             
             if not result or "vertices" not in result:
-                print(f"[CadAgent DEBUG] ❌ No valid 'vertices' key found in output. Raw output snippet:\n{output[:500]}...")
+                print(f"[CadAgent DEBUG] [ERR] No valid 'vertices' key found in output. Raw output snippet:\n{output[:500]}...")
                 # Fallback: Check text if it decided not to run code (rare with forced tool but possible)
                 return None
 
             # Validate structure
             if not isinstance(result["vertices"], list) or not isinstance(result["edges"], list):
-                print("[CadAgent DEBUG] ❌ Invalid JSON structure (not lists).")
+                print("[CadAgent DEBUG] [ERR] Invalid JSON structure (not lists).")
                 return None
                 
             # Basic validation check
-            print(f"[CadAgent DEBUG] ✅ Validation Passed: {len(result['vertices'])} vertices, {len(result['edges'])} edges.")
+            print(f"[CadAgent DEBUG] [OK] Validation Passed: {len(result['vertices'])} vertices, {len(result['edges'])} edges.")
             
             # Debug: Save to file for inspection
             with open("last_cad_generation.json", "w") as f:
