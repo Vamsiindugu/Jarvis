@@ -10,10 +10,11 @@ from typing import List
 load_dotenv()
 
 class CadAgent:
-    def __init__(self):
+    def __init__(self, on_thought=None):
         self.client = genai.Client(http_options={"api_version": "v1beta"}, api_key=os.getenv("GEMINI_API_KEY"))
-        # Using the flash model with code execution capabilities
-        self.model = "gemini-3-pro-preview" 
+        # Using Gemini 2.5 Pro for thinking/streaming support
+        self.model = "gemini-2.5-pro"
+        self.on_thought = on_thought  # Callback for streaming thoughts 
         
         self.system_instruction = """
 You are a Python-based 3D CAD Engineer using the `build123d` library.
@@ -64,9 +65,9 @@ export_stl(result_part, 'output.stl')
         print(f"[CadAgent DEBUG] [START] Generation started for: '{prompt}'")
         
         try:
-            # Clean up old output
-            if os.path.exists("output.stl"):
-                os.remove("output.stl")
+            # Clean up old output (in /tmp)
+            if os.path.exists("/tmp/output.stl"):
+                os.remove("/tmp/output.stl")
 
             max_retries = 3
             current_prompt = f"You are a build123d expert. Write a generic python script to create a 3D model of: {prompt}. Ensure you export to 'output.stl'. Unscaled."
@@ -74,17 +75,30 @@ export_stl(result_part, 'output.stl')
             for attempt in range(max_retries):
                 print(f"[CadAgent DEBUG] Attempt {attempt + 1}/{max_retries}")
                 
-                # 1. Ask Gemini for the code (NO cloud execution)
-                response = await self.client.aio.models.generate_content(
+                # 1. Ask Gemini for the code with streaming and thinking
+                raw_content = ""
+                stream = await self.client.aio.models.generate_content_stream(
                     model=self.model,
                     contents=current_prompt,
                     config=types.GenerateContentConfig(
                         system_instruction=self.system_instruction,
-                        temperature=0.7 
+                        temperature=1.0,
+                        thinking_config=types.ThinkingConfig(include_thoughts=True)
                     )
                 )
+                async for chunk in stream:
+                    if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
+                        for part in chunk.candidates[0].content.parts:
+                            if not part.text:
+                                continue
+                            elif part.thought:
+                                # Stream thought to callback
+                                if self.on_thought:
+                                    self.on_thought(part.text)
+                            else:
+                                # Accumulate answer text
+                                raw_content += part.text
                 
-                raw_content = response.text
                 if not raw_content:
                     print("[CadAgent DEBUG] [ERR] Empty response from model.")
                     return None
@@ -102,11 +116,13 @@ export_stl(result_part, 'output.stl')
                     else:
                         print("[CadAgent DEBUG] [ERR] Could not extract python code.")
                         return None
-                
-                # 3. Save to Local File
-                script_name = "temp_cad_gen.py"
+                # 3. Save to Local File (use /tmp to avoid triggering uvicorn reload)
+                script_name = "/tmp/temp_cad_gen.py"
+                output_stl = "/tmp/output.stl"
                 with open(script_name, "w") as f:
-                    f.write(code)
+                    # Inject output path into the script
+                    code_with_path = code.replace("output.stl", output_stl)
+                    f.write(code_with_path)
                     
                 print(f"[CadAgent DEBUG] [EXEC] Running local script: {script_name}")
                 
@@ -145,9 +161,9 @@ Original request: {prompt}
                 print(f"[CadAgent DEBUG] [OK] Script executed successfully.")
                 
                 # 5. Read Output
-                if os.path.exists("output.stl"):
-                    print("[CadAgent DEBUG] [file] 'output.stl' found.")
-                    with open("output.stl", "rb") as f:
+                if os.path.exists(output_stl):
+                    print(f"[CadAgent DEBUG] [file] '{output_stl}' found.")
+                    with open(output_stl, "rb") as f:
                         stl_data = f.read()
                         
                     import base64
@@ -158,7 +174,7 @@ Original request: {prompt}
                         "data": b64_stl
                     }
                 else:
-                     print("[CadAgent DEBUG] [ERR] 'output.stl' was not generated.")
+                     print(f"[CadAgent DEBUG] [ERR] '{output_stl}' was not generated.")
                      # If script ran but no output, treat as failure and retry?
                      # Ideally yes.
                      current_prompt = f"The script executed successfully but 'output.stl' was not found. Ensure you call `export_stl(result_part, 'output.stl')` at the end."
@@ -180,7 +196,8 @@ Original request: {prompt}
         """
         print(f"[CadAgent DEBUG] [START] Iteration started for: '{prompt}'")
         
-        script_name = "temp_cad_gen.py"
+        script_name = "/tmp/temp_cad_gen.py"
+        output_stl = "/tmp/output.stl"
         existing_code = ""
         
         if os.path.exists(script_name):
@@ -192,8 +209,8 @@ Original request: {prompt}
 
         try:
             # Clean up old output
-            if os.path.exists("output.stl"):
-                os.remove("output.stl")
+            if os.path.exists(output_stl):
+                os.remove(output_stl)
 
             max_retries = 3
             current_prompt = f"""
@@ -213,17 +230,30 @@ Ensure you still export to 'output.stl'.
             for attempt in range(max_retries):
                 print(f"[CadAgent DEBUG] Iteration Attempt {attempt + 1}/{max_retries}")
                 
-                # 1. Ask Gemini for the code (NO cloud execution)
-                response = await self.client.aio.models.generate_content(
+                # 1. Ask Gemini for the code with streaming and thinking
+                raw_content = ""
+                stream = await self.client.aio.models.generate_content_stream(
                     model=self.model,
                     contents=current_prompt,
                     config=types.GenerateContentConfig(
                         system_instruction=self.system_instruction,
-                        temperature=0.7 
+                        temperature=1.0,
+                        thinking_config=types.ThinkingConfig(include_thoughts=True)
                     )
                 )
+                async for chunk in stream:
+                    if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
+                        for part in chunk.candidates[0].content.parts:
+                            if not part.text:
+                                continue
+                            elif part.thought:
+                                # Stream thought to callback
+                                if self.on_thought:
+                                    self.on_thought(part.text)
+                            else:
+                                # Accumulate answer text
+                                raw_content += part.text
                 
-                raw_content = response.text
                 if not raw_content:
                     print("[CadAgent DEBUG] [ERR] Empty response from model.")
                     return None
@@ -245,7 +275,9 @@ Ensure you still export to 'output.stl'.
                 # 3. Save to Local File
                 # Overwrite the temp file so the next iteration builds on this one
                 with open(script_name, "w") as f:
-                    f.write(code)
+                    # Inject output path into the script
+                    code_with_path = code.replace("output.stl", output_stl)
+                    f.write(code_with_path)
                     
                 print(f"[CadAgent DEBUG] [EXEC] Running local script: {script_name}")
                 
@@ -283,9 +315,9 @@ Ensure you still export to 'output.stl'.
                 print(f"[CadAgent DEBUG] [OK] Script executed successfully.")
                 
                 # 5. Read Output
-                if os.path.exists("output.stl"):
-                    print("[CadAgent DEBUG] [file] 'output.stl' found.")
-                    with open("output.stl", "rb") as f:
+                if os.path.exists(output_stl):
+                    print(f"[CadAgent DEBUG] [file] '{output_stl}' found.")
+                    with open(output_stl, "rb") as f:
                         stl_data = f.read()
                         
                     import base64
@@ -296,8 +328,8 @@ Ensure you still export to 'output.stl'.
                         "data": b64_stl
                     }
                 else:
-                     print("[CadAgent DEBUG] [ERR] 'output.stl' was not generated.")
-                     current_prompt = f"The script executed successfully but 'output.stl' was not found. Ensure you call `export_stl(result_part, 'output.stl')` at the end."
+                     print(f"[CadAgent DEBUG] [ERR] '{output_stl}' was not generated.")
+                     current_prompt = f"The script executed successfully but '{output_stl}' was not found. Ensure you call `export_stl(result_part, 'output.stl')` at the end."
                      continue
 
             # If loop finishes without success

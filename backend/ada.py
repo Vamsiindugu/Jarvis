@@ -122,7 +122,7 @@ from cad_agent import CadAgent
 from web_agent import WebAgent
 
 class AudioLoop:
-    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_project_update=None, input_device_index=None, output_device_index=None):
+    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, input_device_index=None, output_device_index=None):
         self.video_mode = video_mode
         self.on_audio_data = on_audio_data
         self.on_video_frame = on_video_frame
@@ -130,7 +130,8 @@ class AudioLoop:
         self.on_web_data = on_web_data
         self.on_transcription = on_transcription
         self.on_tool_confirmation = on_tool_confirmation 
-        self.on_cad_status = on_cad_status 
+        self.on_cad_status = on_cad_status
+        self.on_cad_thought = on_cad_thought
         self.on_project_update = on_project_update
         self.input_device_index = input_device_index
         self.output_device_index = output_device_index
@@ -147,7 +148,12 @@ class AudioLoop:
 
         self.session = None
         
-        self.cad_agent = CadAgent()
+        # Create CadAgent with thought callback
+        def handle_cad_thought(thought_text):
+            if self.on_cad_thought:
+                self.on_cad_thought(thought_text)
+        
+        self.cad_agent = CadAgent(on_thought=handle_cad_thought)
         self.web_agent = WebAgent()
 
         self.send_text_task = None
@@ -220,6 +226,19 @@ class AudioLoop:
 
     async def listen_audio(self):
         mic_info = pya.get_default_input_device_info()
+
+        # Validate Device Index
+        resolved_input_device_index = None
+        if self.input_device_index is not None:
+             try:
+                 resolved_input_device_index = int(self.input_device_index)
+                 print(f"[ADA] Requesting Input Device Index: {resolved_input_device_index}")
+             except ValueError:
+                 print(f"[ADA] Invalid device index '{self.input_device_index}', reverting to default.")
+                 resolved_input_device_index = None
+        else:
+             print("[ADA] Using Default Input Device")
+
         try:
             self.audio_stream = await asyncio.to_thread(
                 pya.open,
@@ -227,7 +246,7 @@ class AudioLoop:
                 channels=CHANNELS,
                 rate=SEND_SAMPLE_RATE,
                 input=True,
-                input_device_index=self.input_device_index if self.input_device_index is not None else mic_info["index"],
+                input_device_index=resolved_input_device_index if resolved_input_device_index is not None else mic_info["index"],
                 frames_per_buffer=CHUNK_SIZE,
             )
         except OSError as e:
@@ -257,6 +276,25 @@ class AudioLoop:
         print(f"[ADA DEBUG] [CAD] Background Task Started: handle_cad_request('{prompt}')")
         if self.on_cad_status:
             self.on_cad_status("generating")
+            
+        # Auto-create project if stuck in temp
+        if self.project_manager.current_project == "temp":
+            import datetime
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            new_project_name = f"Project_{timestamp}"
+            print(f"[ADA DEBUG] [CAD] Auto-creating project: {new_project_name}")
+            
+            success, msg = self.project_manager.create_project(new_project_name)
+            if success:
+                self.project_manager.switch_project(new_project_name)
+                # Notify User (Optional, or rely on update)
+                try:
+                    await self.session.send(input=f"System Notification: Automatic Project Creation. Switched to new project '{new_project_name}'.", end_of_turn=False)
+                    if self.on_project_update:
+                         self.on_project_update(new_project_name)
+                except Exception as e:
+                    print(f"[ADA DEBUG] [ERR] Failed to notify auto-project: {e}")
+
         # Call the secondary agent
         cad_data = await self.cad_agent.generate_prototype(prompt)
         
@@ -288,28 +326,53 @@ class AudioLoop:
             except Exception:
                 pass
 
-    async def handle_create_directory(self, path):
-        print(f"[ADA DEBUG] [FS] Creating directory: '{path}'")
-        try:
-            os.makedirs(path, exist_ok=True)
-            result = f"Directory '{path}' created successfully."
-        except Exception as e:
-            result = f"Failed to create directory '{path}': {str(e)}"
-        
-        print(f"[ADA DEBUG] [FS] Result: {result}")
-        try:
-             await self.session.send(input=f"System Notification: {result}", end_of_turn=True)
-        except Exception as e:
-             print(f"[ADA DEBUG] [ERR] Failed to send fs result: {e}")
+
 
     async def handle_write_file(self, path, content):
         print(f"[ADA DEBUG] [FS] Writing file: '{path}'")
+        
+        # Auto-create project if stuck in temp
+        if self.project_manager.current_project == "temp":
+            import datetime
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            new_project_name = f"Project_{timestamp}"
+            print(f"[ADA DEBUG] [FS] Auto-creating project: {new_project_name}")
+            
+            success, msg = self.project_manager.create_project(new_project_name)
+            if success:
+                self.project_manager.switch_project(new_project_name)
+                # Notify User
+                try:
+                    await self.session.send(input=f"System Notification: Automatic Project Creation. Switched to new project '{new_project_name}'.", end_of_turn=False)
+                    if self.on_project_update:
+                         self.on_project_update(new_project_name)
+                except Exception as e:
+                    print(f"[ADA DEBUG] [ERR] Failed to notify auto-project: {e}")
+        
+        # Force path to be relative to current project
+        # If absolute path is provided, we try to strip it or just ignore it and use basename
+        filename = os.path.basename(path)
+        
+        # If path contained subdirectories (e.g. "backend/server.py"), preserving that structure might be desired IF it's within the project.
+        # But for safety, and per user request to "always create the file in the project", 
+        # we will root it in the current project path.
+        
+        current_project_path = self.project_manager.get_current_project_path()
+        final_path = current_project_path / filename # Simple flat structure for now, or allow relative?
+        
+        # If the user specifically wanted a subfolder, they might have provided "sub/file.txt".
+        # Let's support relative paths if they don't start with /
+        if not os.path.isabs(path):
+             final_path = current_project_path / path
+        
+        print(f"[ADA DEBUG] [FS] Resolved path: '{final_path}'")
+
         try:
             # Ensure parent exists
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, 'w', encoding='utf-8') as f:
+            os.makedirs(os.path.dirname(final_path), exist_ok=True)
+            with open(final_path, 'w', encoding='utf-8') as f:
                 f.write(content)
-            result = f"File '{path}' written successfully."
+            result = f"File '{final_path.name}' written successfully to project '{self.project_manager.current_project}'."
         except Exception as e:
             result = f"Failed to write file '{path}': {str(e)}"
 
@@ -429,7 +492,7 @@ class AudioLoop:
                         print("The tool was called")
                         function_responses = []
                         for fc in response.tool_call.function_calls:
-                            if fc.name in ["generate_cad", "run_web_agent", "create_directory", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects"]:
+                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects"]:
                                 prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
                                 
                                 # Check Permissions (Default to True if not set)
@@ -523,14 +586,7 @@ class AudioLoop:
                                     function_responses.append(function_response)
                                     function_responses.append(function_response)
 
-                                elif fc.name == "create_directory":
-                                    path = fc.args["path"]
-                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'create_directory' path='{path}'")
-                                    asyncio.create_task(self.handle_create_directory(path))
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id, name=fc.name, response={"result": "Creating directory..."}
-                                    )
-                                    function_responses.append(function_response)
+
 
                                 elif fc.name == "write_file":
                                     path = fc.args["path"]

@@ -14,20 +14,7 @@ generate_cad_prototype_tool = {
 }
 
 
-create_directory_tool = {
-    "name": "create_directory",
-    "description": "Creates a new directory at the specified path.",
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {
-            "path": {
-                "type": "STRING",
-                "description": "The absolute or relative path of the directory to create."
-            }
-        },
-        "required": ["path"]
-    }
-}
+
 
 write_file_tool = {
     "name": "write_file",
@@ -80,7 +67,6 @@ read_file_tool = {
 
 tools_list = [{"function_declarations": [
     generate_cad_prototype_tool,
-    create_directory_tool,
     write_file_tool,
     read_directory_tool,
     read_file_tool

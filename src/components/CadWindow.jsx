@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Canvas, useLoader, useFrame } from '@react-three/fiber';
 import { OrbitControls, Center, Stage } from '@react-three/drei';
 import * as THREE from 'three';
@@ -26,16 +26,24 @@ const LoadingCube = () => {
     );
 };
 
-const CadWindow = ({ data, onClose, socket }) => {
+const CadWindow = ({ data, thoughts, onClose, socket }) => {
     // data format: { format: "stl", data: "base64..." }
     const [isIterating, setIsIterating] = useState(false);
     const [prompt, setPrompt] = useState("");
     const [isSending, setIsSending] = useState(false);
+    const thoughtsEndRef = useRef(null);
 
     // Debug log
     useEffect(() => {
         if (data) console.log("CadWindow Data:", data.format);
     }, [data]);
+
+    // Auto-scroll thoughts panel
+    useEffect(() => {
+        if (thoughtsEndRef.current) {
+            thoughtsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [thoughts]);
 
     const geometry = useMemo(() => {
         if (!data || data.format !== 'stl' || !data.data) return null;
@@ -144,6 +152,20 @@ const CadWindow = ({ data, onClose, socket }) => {
 
                 <OrbitControls autoRotate={!isIterating} autoRotateSpeed={1} makeDefault />
             </Canvas>
+
+            {/* Streaming Thoughts Panel */}
+            {data?.format === 'loading' && thoughts && (
+                <div className="absolute inset-y-0 right-0 w-2/5 p-4 bg-black/70 backdrop-blur-sm border-l border-green-500/30 overflow-hidden flex flex-col">
+                    <h4 className="text-green-400 text-xs font-mono mb-2 tracking-widest uppercase flex items-center gap-2">
+                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                        Designer Thinking...
+                    </h4>
+                    <div className="flex-1 overflow-y-auto text-green-400/80 text-xs font-mono whitespace-pre-wrap leading-relaxed scrollbar-thin scrollbar-thumb-green-500/30">
+                        {thoughts}
+                        <div ref={thoughtsEndRef} />
+                    </div>
+                </div>
+            )}
 
             <div className="absolute bottom-2 left-2 text-[10px] text-cyan-500/50 font-mono tracking-widest pointer-events-none">
                 CAD_ENGINE_V2: {data?.format?.toUpperCase() || "READY"}

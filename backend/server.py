@@ -36,7 +36,6 @@ DEFAULT_SETTINGS = {
     "tool_permissions": {
         "generate_cad": True,
         "run_web_agent": True,
-        "create_directory": True,
         "write_file": True,
         "read_directory": True,
         "read_file": True,
@@ -150,8 +149,14 @@ async def start_audio(sid, data=None):
         print(f"Using input device index: {device_index}")
     
     if audio_loop:
-        print("Audio loop already running")
-        return
+        if loop_task and (loop_task.done() or loop_task.cancelled()):
+             print("Audio loop task appeared finished/cancelled. Clearing and restarting...")
+             audio_loop = None
+             loop_task = None
+        else:
+             print("Audio loop already running. Re-connecting client to session.")
+             await sio.emit('status', {'msg': 'A.D.A Already Running'})
+             return
 
 
     # Callback to send audio data to frontend
@@ -188,6 +193,10 @@ async def start_audio(sid, data=None):
         print(f"Sending CAD Status: {status}")
         asyncio.create_task(sio.emit('cad_status', {'status': status}))
 
+    # Callback to send CAD thoughts to frontend (streaming)
+    def on_cad_thought(thought_text):
+        asyncio.create_task(sio.emit('cad_thought', {'text': thought_text}))
+
     # Callback to send Project Update to frontend
     def on_project_update(project_name):
         print(f"Sending Project Update: {project_name}")
@@ -195,6 +204,7 @@ async def start_audio(sid, data=None):
 
     # Initialize ADA
     try:
+        print(f"Initializing AudioLoop with device_index={device_index}")
         audio_loop = ada.AudioLoop(
             video_mode="none", 
             on_audio_data=on_audio_data,
@@ -203,10 +213,12 @@ async def start_audio(sid, data=None):
             on_transcription=on_transcription,
             on_tool_confirmation=on_tool_confirmation,
             on_cad_status=on_cad_status,
+            on_cad_thought=on_cad_thought,
             on_project_update=on_project_update,
 
             input_device_index=device_index
         )
+        print("AudioLoop initialized successfully.")
 
         # Apply current permissions
         audio_loop.update_permissions(SETTINGS["tool_permissions"])
@@ -216,10 +228,32 @@ async def start_audio(sid, data=None):
             print("Starting with Audio Paused")
             audio_loop.set_paused(True)
 
+        print("Creating asyncio task for AudioLoop.run()")
         loop_task = asyncio.create_task(audio_loop.run(
             start_message="System: User successfully authenticated via facial recognition. Access granted. Greet the user."
         ))
+        
+        # Add a done callback to catch silent failures in the loop
+        def handle_loop_exit(task):
+            try:
+                task.result()
+            except asyncio.CancelledError:
+                print("Audio Loop Cancelled")
+            except Exception as e:
+                print(f"Audio Loop Crashed: {e}")
+                # You could emit 'error' here if you have context
+        
+        loop_task.add_done_callback(handle_loop_exit)
+        
+        print("Emitting 'A.D.A Started'")
         await sio.emit('status', {'msg': 'A.D.A Started'})
+        
+    except Exception as e:
+        print(f"CRITICAL ERROR STARTING ADA: {e}")
+        import traceback
+        traceback.print_exc()
+        await sio.emit('error', {'msg': f"Failed to start: {str(e)}"})
+        audio_loop = None # Ensure we can try again
 
     except Exception as e:
         print(f"Error starting ADA: {e}")
@@ -333,8 +367,6 @@ async def save_memory(sid, data):
             for msg in messages:
                 sender = msg.get('sender', 'Unknown')
                 text = msg.get('text', '')
-                f.write(f"{sender}: {text}\n\n")
-        
         print(f"Conversation saved to {filename}")
         await sio.emit('status', {'msg': 'Memory Saved Successfully'})
 
@@ -503,4 +535,10 @@ async def update_tool_permissions(sid, data):
     await sio.emit('tool_permissions', SETTINGS["tool_permissions"])
 
 if __name__ == "__main__":
-    uvicorn.run(app_socketio, host="127.0.0.1", port=8000)
+    uvicorn.run(
+        "server:app_socketio", 
+        host="127.0.0.1", 
+        port=8000, 
+        reload=True,
+        reload_excludes=["temp_cad_gen.py", "output.stl", "*.stl"]
+    )

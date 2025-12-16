@@ -1,33 +1,19 @@
+# A build123d script to create a 2-inch diameter sphere.
+
 from build123d import *
 
-# Create the wheel part
-with BuildPart() as p:
-    # Main wheel body: Diameter 10mm -> Radius 5mm, Width 4mm
-    Cylinder(radius=5, height=4)
-    
-    # Axle hole: Diameter 3mm -> Radius 1.5mm
-    Cylinder(radius=1.5, height=4, mode=Mode.SUBTRACT)
-    
-    # Robust Edge Selection:
-    # 1. Filter for only circular edges (ignores vertical seam lines on cylinders)
-    # 2. Separate into outer rim (radius ~5) and inner hole (radius ~1.5)
-    circular_edges = p.edges().filter_by(GeomType.CIRCLE)
-    
-    # Select outer edges (radius > 4mm)
-    outer_rim_edges = circular_edges.filter_by(lambda e: e.radius > 4.0)
-    
-    # Select inner hole edges (radius < 2mm)
-    inner_hole_edges = circular_edges.filter_by(lambda e: e.radius < 2.0)
-    
-    # Apply operations if edges are found
-    if outer_rim_edges:
-        chamfer(outer_rim_edges, length=0.5)
-        
-    if inner_hole_edges:
-        chamfer(inner_hole_edges, length=0.2)
+# Define the conversion from inches to millimeters, as build123d defaults to mm.
+inch = 25.4
 
-# Assign to result_part
-result_part = p.part
+# Calculate the radius from the desired 2-inch diameter.
+sphere_diameter = 2 * inch
+sphere_radius = sphere_diameter / 2
 
-# Export to STL
+# Create the sphere. The Sphere primitive is centered at (0,0,0) by default.
+# The Sphere constructor takes radius as its primary argument.
+result_part = Sphere(radius=sphere_radius)
+
+# Export the final part to an STL file.
+# The user requested the model to be unscaled, and since we worked in mm from the start,
+# the exported STL will have the correct dimensions.
 export_stl(result_part, 'output.stl')

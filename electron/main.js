@@ -70,13 +70,63 @@ app.whenReady().then(() => {
         if (mainWindow) mainWindow.close();
     });
 
-    startPythonBackend();
-    createWindow();
+    checkBackendPort(8000).then((isTaken) => {
+        if (isTaken) {
+            console.log('Port 8000 is taken. Assuming backend is already running manually.');
+            waitForBackend().then(createWindow);
+        } else {
+            startPythonBackend();
+            // Give it a moment to start, then wait for health check
+            setTimeout(() => {
+                waitForBackend().then(createWindow);
+            }, 1000);
+        }
+    });
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
 });
+
+function checkBackendPort(port) {
+    return new Promise((resolve) => {
+        const net = require('net');
+        const server = net.createServer();
+        server.once('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                resolve(true);
+            } else {
+                resolve(false);
+            }
+        });
+        server.once('listening', () => {
+            server.close();
+            resolve(false);
+        });
+        server.listen(port);
+    });
+}
+
+function waitForBackend() {
+    return new Promise((resolve) => {
+        const check = () => {
+            const http = require('http');
+            http.get('http://127.0.0.1:8000/status', (res) => {
+                if (res.statusCode === 200) {
+                    console.log('Backend is ready!');
+                    resolve();
+                } else {
+                    console.log('Backend not ready, retrying...');
+                    setTimeout(check, 1000);
+                }
+            }).on('error', (err) => {
+                console.log('Waiting for backend...');
+                setTimeout(check, 1000);
+            });
+        };
+        check();
+    });
+}
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();

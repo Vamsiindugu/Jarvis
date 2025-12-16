@@ -22,8 +22,12 @@ const { ipcRenderer } = window.require('electron');
 
 function App() {
     const [status, setStatus] = useState('Disconnected');
+    const [socketConnected, setSocketConnected] = useState(socket.connected); // Track socket connection reactively
     // Auth State
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [isAuthenticated, setIsAuthenticated] = useState(() => {
+        // Optimistically assume authenticated if face auth is NOT enabled
+        return localStorage.getItem('face_auth_enabled') !== 'true';
+    });
 
     // Initialize from LocalStorage to prevent flash of UI
     const [isLockScreenVisible, setIsLockScreenVisible] = useState(() => {
@@ -45,6 +49,7 @@ function App() {
     const [messages, setMessages] = useState([]);
     const [inputValue, setInputValue] = useState('');
     const [cadData, setCadData] = useState(null);
+    const [cadThoughts, setCadThoughts] = useState(''); // Streaming AI thoughts
     const [browserData, setBrowserData] = useState({ image: null, logs: [] });
     const [showMemoryPrompt, setShowMemoryPrompt] = useState(false);
     const [confirmationRequest, setConfirmationRequest] = useState(null); // { id, tool, args }
@@ -215,32 +220,52 @@ function App() {
         return () => window.removeEventListener('resize', centerElements);
     }, []);
 
-    // Auto-Connect Model on Start
-    // Auto-Connect Model on Start (Only after Auth)
+    // Ref to track if model has been auto-connected (prevents duplicate connections)
+    const hasAutoConnectedRef = useRef(false);
+
+    // Auto-Connect Model on Start (Only after Auth and devices loaded)
     useEffect(() => {
-        if (isConnected && isAuthenticated) {
+        // Only auto-connect once: when socket connected, authenticated, and devices loaded
+        if (isConnected && isAuthenticated && socketConnected && devices.length > 0 && !hasAutoConnectedRef.current) {
+            hasAutoConnectedRef.current = true;
+
             // Trigger Kasa Discovery
             socket.emit('discover_kasa');
 
-            // Wait brief moment for socket to stabilize/devices to load, then connect
-
+            // Connect to model with small delay for socket stability
             const timer = setTimeout(() => {
                 const index = devices.findIndex(d => d.deviceId === selectedDeviceId);
+                console.log("Auto-connecting to model with device index:", index);
+                setStatus('Connecting...');
                 socket.emit('start_audio', {
                     device_index: index >= 0 ? index : null,
                     muted: isMuted
                 });
-                console.log("Auto-connecting to model...");
-            }, 1000);
+            }, 500);
             return () => clearTimeout(timer);
         }
-    }, [isConnected, isAuthenticated, devices, selectedDeviceId]); // Added isAuthenticated dependency
+    }, [isConnected, isAuthenticated, socketConnected, devices, selectedDeviceId]);
 
     useEffect(() => {
         // Socket IO Setup
-        socket.on('connect', () => setStatus('Connected'));
-        socket.on('disconnect', () => setStatus('Disconnected'));
-        socket.on('status', (data) => addMessage('System', data.msg));
+        socket.on('connect', () => {
+            setStatus('Connected');
+            setSocketConnected(true);
+            socket.emit('get_settings');
+        });
+        socket.on('disconnect', () => {
+            setStatus('Disconnected');
+            setSocketConnected(false);
+        });
+        socket.on('status', (data) => {
+            addMessage('System', data.msg);
+            // Update status bar based on backend messages
+            if (data.msg === 'A.D.A Started') {
+                setStatus('Model Connected');
+            } else if (data.msg === 'A.D.A Stopped') {
+                setStatus('Connected');
+            }
+        });
         socket.on('audio_data', (data) => {
             setAiAudioData(data.data);
         });
@@ -276,6 +301,7 @@ function App() {
         socket.on('cad_data', (data) => {
             console.log("Received CAD Data:", data);
             setCadData(data);
+            setCadThoughts(''); // Clear thoughts when generation complete
             // Auto-show the window if it's hidden (optional, but good UX)
             if (!elementPositions.cad) {
                 setElementPositions(prev => ({
@@ -288,6 +314,7 @@ function App() {
             console.log("Received CAD Status:", data.status);
             if (data.status === 'generating') {
                 setCadData({ format: 'loading' });
+                setCadThoughts(''); // Clear previous thoughts for new generation
                 // Auto-show the window
                 if (!elementPositions.cad) {
                     setElementPositions(prev => ({
@@ -296,6 +323,10 @@ function App() {
                     }));
                 }
             }
+        });
+        socket.on('cad_thought', (data) => {
+            // Append streaming thought text
+            setCadThoughts(prev => prev + data.text);
         });
         socket.on('browser_frame', (data) => {
             setBrowserData(prev => ({
@@ -425,6 +456,8 @@ function App() {
             socket.off('status');
             socket.off('audio_data');
             socket.off('cad_data');
+            socket.off('cad_thought');
+            socket.off('cad_status');
             socket.off('browser_frame');
             socket.off('transcription');
             socket.off('transcription');
@@ -434,6 +467,14 @@ function App() {
             stopMicVisualizer();
             stopVideo();
         };
+    }, []);
+
+    // Initial check in case we are already connected (fix race condition)
+    useEffect(() => {
+        if (socket.connected) {
+            setStatus('Connected');
+            socket.emit('get_settings');
+        }
     }, []);
 
     // Start/Stop Mic Visualizer
@@ -1222,7 +1263,7 @@ function App() {
                     >
                         <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
                         <div className="relative z-20 w-full h-full">
-                            <CadWindow data={cadData} onClose={() => setCadData(null)} socket={socket} />
+                            <CadWindow data={cadData} thoughts={cadThoughts} onClose={() => setCadData(null)} socket={socket} />
                         </div>
                         {isModularMode && <div className={`absolute top-2 left-2 text-xs font-bold tracking-widest z-20 ${activeDragElement === 'cad' ? 'text-green-500' : 'text-cyan-500/50'}`}>CAD PROTOTYPE</div>}
                     </div>
