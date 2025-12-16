@@ -9,21 +9,19 @@ from cad_agent import CadAgent
 
 async def main():
     agent = CadAgent()
-    prompt = "Generate a low-poly wireframe of a geodesic dome."
+    prompt = "A simple 10x10x10 cube with a 5mm hole in the center."
     
     print(f"Testing CadAgent with prompt: '{prompt}'")
     data = await agent.generate_prototype(prompt)
     
-    if data:
+    if data and data.get('format') == 'stl' and data.get('data'):
         print("\n✅ Verification Successful!")
-        print(f"Vertices count: {len(data['vertices'])}")
-        print(f"Edges count: {len(data['edges'])}")
-        
-        # Print sample data
-        print(f"First 5 vertices: {data['vertices'][:5]}")
-        print(f"First 5 edges: {data['edges'][:5]}")
+        print(f"Format: {data['format']}")
+        print(f"Data Length: {len(data['data'])} bytes")
     else:
         print("\n❌ Verification Failed!")
+        if data:
+            print(f"Received data: {data.keys()}")
 
 if __name__ == "__main__":
     asyncio.run(main())

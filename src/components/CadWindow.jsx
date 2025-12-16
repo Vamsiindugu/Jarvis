@@ -14,7 +14,7 @@ const Model = ({ url }) => {
 };
 
 const CadWindow = ({ data, onClose }) => {
-    // data format: { format: "stl", data: "base64..." } OR old { vertices... }
+    // data format: { format: "stl", data: "base64..." }
 
     // Debug log
     useEffect(() => {
@@ -68,7 +68,7 @@ const CadWindow = ({ data, onClose }) => {
             </Canvas>
 
             <div className="absolute bottom-2 left-2 text-[10px] text-cyan-500/50 font-mono tracking-widest pointer-events-none">
-                CAD_ENGINE_V2: {data?.format?.toUpperCase() || "WAITING"}
+                CAD_ENGINE_V2: {data?.format?.toUpperCase() || "READY"}
             </div>
         </div>
     );

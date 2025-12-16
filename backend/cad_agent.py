@@ -11,6 +11,14 @@ load_dotenv()
 
 class CadAgent:
     def __init__(self):
+        import sys
+        print(f"[CadAgent DEBUG] sys.executable: {sys.executable}")
+        try:
+            import build123d
+            print(f"[CadAgent DEBUG] build123d imported successfully in main process. location: {build123d.__file__}")
+        except ImportError:
+            print("[CadAgent DEBUG] CRITICAL: build123d NOT found in main process.")
+
         self.client = genai.Client(http_options={"api_version": "v1beta"}, api_key=os.getenv("GEMINI_API_KEY"))
         # Using the flash model with code execution capabilities
         self.model = "gemini-2.0-flash-exp" 
@@ -25,6 +33,7 @@ Requirements:
 3. You MUST assign the final object to a variable named `result_part`.
 4. If you create a sketch or line, extrude it to make it a solid `Part`.
 5. The model should be centered at (0,0,0) and have reasonable dimensions (mm).
+6. NOTE: `build123d` Vector objects are NOT subscriptable (e.g., `v[0]` fails). Use `v.X`, `v.Y`, `v.Z`.
 6. At the end of the script, you MUST export the `result_part` to an STL file named 'output.stl'.
    Example: `export_stl(result_part, 'output.stl')`
 
