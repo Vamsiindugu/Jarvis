@@ -30,7 +30,18 @@ class FaceAuthenticator:
 
         try:
             print("[AUTH] Loading reference image...")
-            image = face_recognition.load_image_file(self.reference_image_path)
+            # Workaround for numpy 2.x / dlib compatibility issue
+            # face_recognition.load_image_file uses PIL, which dlib now rejects due to array layout checks
+            import numpy as np
+            img_bgr = cv2.imread(self.reference_image_path)
+            if img_bgr is None:
+                print(f"[AUTH] [ERR] Failed to read image file: {self.reference_image_path}")
+                return
+            
+            # Convert to RGB and enforce contiguous uint8 array
+            image = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+            image = np.ascontiguousarray(image, dtype=np.uint8)
+            
             encodings = face_recognition.face_encodings(image)
             
             if len(encodings) > 0:

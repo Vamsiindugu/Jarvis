@@ -4,8 +4,7 @@ import { OrbitControls, Center, Stage } from '@react-three/drei';
 import * as THREE from 'three';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
 
-const Model = ({ url }) => {
-    const geometry = useLoader(STLLoader, url);
+const GeometryModel = ({ geometry }) => {
     return (
         <mesh geometry={geometry} castShadow receiveShadow>
             <meshStandardMaterial color="#06b6d4" roughness={0.3} metalness={0.8} />
@@ -21,31 +20,28 @@ const CadWindow = ({ data, onClose }) => {
         if (data) console.log("CadWindow Data:", data.format);
     }, [data]);
 
-    const blobUrl = useMemo(() => {
+    const geometry = useMemo(() => {
         if (!data || data.format !== 'stl' || !data.data) return null;
 
         try {
-            // Convert Base64 to Blob
+            // Convert Base64 to ArrayBuffer
             const byteCharacters = atob(data.data);
             const byteNumbers = new Array(byteCharacters.length);
             for (let i = 0; i < byteCharacters.length; i++) {
                 byteNumbers[i] = byteCharacters.charCodeAt(i);
             }
             const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: 'application/octet-stream' });
-            return URL.createObjectURL(blob);
+
+            // Parse directly using THREE.STLLoader
+            const loader = new STLLoader();
+            const geom = loader.parse(byteArray.buffer);
+            geom.center(); // Optional: Center the geometry
+            return geom;
         } catch (e) {
-            console.error("Failed to decode STL:", e);
+            console.error("Failed to decode/parse STL:", e);
             return null;
         }
     }, [data]);
-
-    // Cleanup URL
-    useEffect(() => {
-        return () => {
-            if (blobUrl) URL.revokeObjectURL(blobUrl);
-        };
-    }, [blobUrl]);
 
     return (
         <div className="w-full h-full relative group bg-gray-900 rounded-lg overflow-hidden border border-cyan-500/30">
@@ -57,9 +53,9 @@ const CadWindow = ({ data, onClose }) => {
                 <color attach="background" args={['#101010']} />
 
                 <Stage environment="city" intensity={0.5}>
-                    {blobUrl && (
+                    {geometry && (
                         <Center>
-                            <Model url={blobUrl} />
+                            <GeometryModel geometry={geometry} />
                         </Center>
                     )}
                 </Stage>
