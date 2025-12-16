@@ -150,15 +150,21 @@ class AudioLoop:
 
     async def listen_audio(self):
         mic_info = pya.get_default_input_device_info()
-        self.audio_stream = await asyncio.to_thread(
-            pya.open,
-            format=FORMAT,
-            channels=CHANNELS,
-            rate=SEND_SAMPLE_RATE,
-            input=True,
-            input_device_index=self.input_device_index if self.input_device_index is not None else mic_info["index"],
-            frames_per_buffer=CHUNK_SIZE,
-        )
+        try:
+            self.audio_stream = await asyncio.to_thread(
+                pya.open,
+                format=FORMAT,
+                channels=CHANNELS,
+                rate=SEND_SAMPLE_RATE,
+                input=True,
+                input_device_index=self.input_device_index if self.input_device_index is not None else mic_info["index"],
+                frames_per_buffer=CHUNK_SIZE,
+            )
+        except OSError as e:
+            print(f"[ADA] [ERR] Failed to open audio input stream: {e}")
+            print("[ADA] [WARN] Audio features will be disabled. Please check microphone permissions.")
+            return
+
         if __debug__:
             kwargs = {"exception_on_overflow": False}
         else:
@@ -353,7 +359,7 @@ class AudioLoop:
             await asyncio.to_thread(stream.write, bytestream)
 
     async def get_frames(self):
-        cap = await asyncio.to_thread(cv2.VideoCapture, 0)
+        cap = await asyncio.to_thread(cv2.VideoCapture, 0, cv2.CAP_AVFOUNDATION)
         while True:
             if self.paused:
                 await asyncio.sleep(0.1)

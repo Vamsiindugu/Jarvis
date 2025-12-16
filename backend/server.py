@@ -100,7 +100,8 @@ async def start_audio(sid, data=None):
 
     # Callback to send CAL data to frontend
     def on_cad_data(data):
-        print(f"Sending CAD data to frontend: {len(data.get('vertices', []))} vertices")
+        info = f"{len(data.get('vertices', []))} vertices" if 'vertices' in data else f"{len(data.get('data', ''))} bytes (STL)"
+        print(f"Sending CAD data to frontend: {info}")
         asyncio.create_task(sio.emit('cad_data', data))
 
     # Callback to send Browser data to frontend

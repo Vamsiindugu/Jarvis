@@ -1,73 +1,74 @@
-import React, { useMemo } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Line, Sphere } from '@react-three/drei';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Canvas, useLoader } from '@react-three/fiber';
+import { OrbitControls, Center, Stage } from '@react-three/drei';
 import * as THREE from 'three';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
+
+const Model = ({ url }) => {
+    const geometry = useLoader(STLLoader, url);
+    return (
+        <mesh geometry={geometry} castShadow receiveShadow>
+            <meshStandardMaterial color="#06b6d4" roughness={0.3} metalness={0.8} />
+        </mesh>
+    );
+};
 
 const CadWindow = ({ data, onClose }) => {
-    // data format: { vertices: [[x,y,z], ...], edges: [[start, end], ...] }
+    // data format: { format: "stl", data: "base64..." } OR old { vertices... }
 
-    // Debug log to verify data reception
-    if (data) {
-        console.log("CadWindow received data:", data);
-        console.log(`Vertices: ${data.vertices?.length}, Edges: ${data.edges?.length}`);
-    }
-
-    const { lines, points } = useMemo(() => {
-        if (!data || !data.vertices || !data.edges) return { lines: [], points: [] };
-
-        const l = [];
-        const { vertices, edges } = data;
-
-        edges.forEach(([start, end]) => {
-            if (vertices[start] && vertices[end]) { // Basic safety check
-                const startPoint = new THREE.Vector3(...vertices[start]);
-                const endPoint = new THREE.Vector3(...vertices[end]);
-                l.push([startPoint, endPoint]);
-            }
-        });
-
-        const p = vertices.map(v => new THREE.Vector3(...v));
-
-        return { lines: l, points: p };
+    // Debug log
+    useEffect(() => {
+        if (data) console.log("CadWindow Data:", data.format);
     }, [data]);
 
+    const blobUrl = useMemo(() => {
+        if (!data || data.format !== 'stl' || !data.data) return null;
+
+        try {
+            // Convert Base64 to Blob
+            const byteCharacters = atob(data.data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'application/octet-stream' });
+            return URL.createObjectURL(blob);
+        } catch (e) {
+            console.error("Failed to decode STL:", e);
+            return null;
+        }
+    }, [data]);
+
+    // Cleanup URL
+    useEffect(() => {
+        return () => {
+            if (blobUrl) URL.revokeObjectURL(blobUrl);
+        };
+    }, [blobUrl]);
+
     return (
-        <div className="w-full h-full relative group">
+        <div className="w-full h-full relative group bg-gray-900 rounded-lg overflow-hidden border border-cyan-500/30">
             <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button onClick={onClose} className="bg-red-500/20 hover:bg-red-500/50 text-red-500 p-1 rounded">X</button>
             </div>
 
-            <Canvas camera={{ position: [2, 2, 2], fov: 50 }}>
-                <ambientLight intensity={0.5} />
-                <pointLight position={[10, 10, 10]} />
+            <Canvas shadows camera={{ position: [4, 4, 4], fov: 45 }}>
+                <color attach="background" args={['#101010']} />
 
-                {/* Axes Helper for orientation: Red=X, Green=Y, Blue=Z */}
-                <axesHelper args={[1]} />
+                <Stage environment="city" intensity={0.5}>
+                    {blobUrl && (
+                        <Center>
+                            <Model url={blobUrl} />
+                        </Center>
+                    )}
+                </Stage>
 
-                {/* Grid for reference */}
-                <gridHelper args={[4, 10, 0x222222, 0x111111]} />
-
-                <group>
-                    {lines.map((pts, i) => (
-                        <Line
-                            key={`line-${i}`}
-                            points={pts}
-                            color="#06b6d4" // Cyan-500
-                            lineWidth={2}
-                        />
-                    ))}
-                    {points.map((pt, i) => (
-                        <Sphere key={`pt-${i}`} position={pt} args={[0.02, 10, 10]}>
-                            <meshStandardMaterial color="white" />
-                        </Sphere>
-                    ))}
-                </group>
-
-                <OrbitControls autoRotate autoRotateSpeed={2} />
+                <OrbitControls autoRotate autoRotateSpeed={1} makeDefault />
             </Canvas>
 
             <div className="absolute bottom-2 left-2 text-[10px] text-cyan-500/50 font-mono tracking-widest pointer-events-none">
-                CAD_VIEWER_V1
+                CAD_ENGINE_V2: {data?.format?.toUpperCase() || "WAITING"}
             </div>
         </div>
     );

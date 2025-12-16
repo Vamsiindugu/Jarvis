@@ -65,13 +65,42 @@ class FaceAuthenticator:
         print("[AUTH] Authentication loop finished.")
 
     def _run_cv_loop(self, loop):
-        video_capture = cv2.VideoCapture(0)
+        # Helper to try opening and reading a frame
+        def try_open_camera(index):
+            print(f"[AUTH] Trying to open camera with index {index}...")
+            cap = cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION)
+            if not cap.isOpened():
+                print(f"[AUTH] [ERR] Could not open video device {index}.")
+                return None
+            
+            # Read one frame to verify
+            # Some cameras open but fail to read if permissions are missing or device is busy
+            ret, frame = cap.read()
+            if not ret:
+                 print(f"[AUTH] [ERR] Opened device {index} but failed to read first frame.")
+                 cap.release()
+                 return None
+            
+            print(f"[AUTH] [OK] Successfully opened and read from device {index}.")
+            return cap
+
+        video_capture = try_open_camera(0)
         
+        if video_capture is None:
+             print("[AUTH] Device 0 failed. Trying device 1...")
+             video_capture = try_open_camera(1)
+
+        if video_capture is None:
+             print("[AUTH] [ERR] All camera attempts failed. Authentication cannot proceed.")
+             self.running = False
+             return
+
         process_this_frame = True
         
         while self.running and not self.authenticated:
             ret, frame = video_capture.read()
             if not ret:
+                print("[AUTH] [ERR] Failed to read frame from camera loop.")
                 break
             
             # Convert BGR to RGB
