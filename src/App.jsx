@@ -13,6 +13,8 @@ import MemoryPrompt from './components/MemoryPrompt';
 import ConfirmationPopup from './components/ConfirmationPopup';
 import AuthLock from './components/AuthLock';
 import KasaWindow from './components/KasaWindow';
+import SettingsWindow from './components/SettingsWindow';
+
 
 
 const socket = io('http://localhost:8000');
@@ -1127,43 +1129,18 @@ function App() {
                 </div>
 
                 {/* Settings Modal - Moved outside Video so it shows independently */}
+                {/* Settings Modal - Moved outside Video so it shows independently */}
                 {showSettings && (
-                    <div className="absolute top-20 right-10 bg-black/90 border border-cyan-500/50 p-4 rounded-lg z-50 w-64 backdrop-blur-xl shadow-[0_0_30px_rgba(6,182,212,0.2)]">
-                        <h3 className="text-cyan-400 font-bold mb-2 text-sm uppercase tracking-wider">Audio Input</h3>
-                        <select
-                            value={selectedDeviceId}
-                            onChange={(e) => setSelectedDeviceId(e.target.value)}
-                            className="w-full bg-gray-900 border border-cyan-800 rounded p-2 text-xs text-cyan-100 focus:border-cyan-400 outline-none mb-4"
-                        >
-                            {devices.map((device, i) => (
-                                <option key={device.deviceId} value={device.deviceId}>
-                                    {device.label || `Microphone ${i + 1}`}
-                                </option>
-                            ))}
-                        </select>
-
-                        <h3 className="text-cyan-400 font-bold mb-2 text-sm uppercase tracking-wider">Cursor Sensitivity: {cursorSensitivity}x</h3>
-                        <input
-                            type="range"
-                            min="1.0"
-                            max="5.0"
-                            step="0.1"
-                            value={cursorSensitivity}
-                            onChange={(e) => setCursorSensitivity(parseFloat(e.target.value))}
-                            className="w-full accent-cyan-400 cursor-pointer mb-4"
-                        />
-
-                        <h3 className="text-cyan-400 font-bold mb-2 text-sm uppercase tracking-wider">Memory Data</h3>
-                        <div className="flex flex-col gap-2">
-                            <label className="text-xs text-cyan-500/80 mb-1">Upload Memory Text</label>
-                            <input
-                                type="file"
-                                accept=".txt"
-                                onChange={handleFileUpload}
-                                className="text-xs text-cyan-100 bg-gray-900 border border-cyan-800 rounded p-2 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-cyan-900 file:text-cyan-400 hover:file:bg-cyan-800"
-                            />
-                        </div>
-                    </div>
+                    <SettingsWindow
+                        socket={socket}
+                        devices={devices}
+                        selectedDeviceId={selectedDeviceId}
+                        setSelectedDeviceId={setSelectedDeviceId}
+                        cursorSensitivity={cursorSensitivity}
+                        setCursorSensitivity={setCursorSensitivity}
+                        handleFileUpload={handleFileUpload}
+                        onClose={() => setShowSettings(false)}
+                    />
                 )}
 
                 {/* CAD Window Overlay - Moved outside of Video so it can show independently */}

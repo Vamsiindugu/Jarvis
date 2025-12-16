@@ -29,6 +29,14 @@ audio_loop = None
 loop_task = None
 authenticator = None
 kasa_agent = KasaAgent()
+tool_permissions = {
+    "generate_cad": True,
+    "run_web_agent": True,
+    "create_directory": True,
+    "write_file": True,
+    "read_directory": True,
+    "read_file": True
+}
 
 @app.get("/status")
 async def status():
@@ -136,8 +144,11 @@ async def start_audio(sid, data=None):
             on_transcription=on_transcription,
             on_tool_confirmation=on_tool_confirmation,
             on_cad_status=on_cad_status,
+
             input_device_index=device_index
         )
+        # Apply current permissions
+        audio_loop.update_permissions(tool_permissions)
         
         # Check initial mute state
         if data and data.get('muted', False):
@@ -377,7 +388,21 @@ async def control_kasa(sid, data):
 
     except Exception as e:
          print(f"Error controlling kasa: {e}")
+         print(f"Error controlling kasa: {e}")
          await sio.emit('error', {'msg': f"Kasa Control Error: {str(e)}"})
+
+@sio.event
+async def get_tool_permissions(sid):
+    await sio.emit('tool_permissions', tool_permissions)
+
+@sio.event
+async def update_tool_permissions(sid, data):
+    print(f"Updating permissions: {data}")
+    tool_permissions.update(data)
+    if audio_loop:
+        audio_loop.update_permissions(tool_permissions)
+    # Broadcast update to all
+    await sio.emit('tool_permissions', tool_permissions)
 
 if __name__ == "__main__":
     uvicorn.run(app_socketio, host="127.0.0.1", port=8000)

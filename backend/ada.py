@@ -113,7 +113,14 @@ class AudioLoop:
         self.send_text_task = None
         self.stop_event = asyncio.Event()
         
+        self.stop_event = asyncio.Event()
+        
+        self.permissions = {} # Default Empty (Will treat unset as True)
         self._pending_confirmations = {}
+
+    def update_permissions(self, new_perms):
+        print(f"[ADA DEBUG] [CONFIG] Updating tool permissions: {new_perms}")
+        self.permissions.update(new_perms)
 
     def set_paused(self, paused):
         self.paused = paused
@@ -334,10 +341,18 @@ class AudioLoop:
                             if fc.name in ["generate_cad", "run_web_agent", "create_directory", "write_file", "read_directory", "read_file"]:
                                 prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
                                 
-                                # Confirmation Logic
-                                if self.on_tool_confirmation:
-                                    import uuid
-                                    request_id = str(uuid.uuid4())
+                                # Check Permissions (Default to True if not set)
+                                confirmation_required = self.permissions.get(fc.name, True)
+                                
+                                if not confirmation_required:
+                                    print(f"[ADA DEBUG] [TOOL] Permission check: '{fc.name}' -> AUTO-ALLOW")
+                                    # Skip confirmation block and jump to execution
+                                    pass
+                                else:
+                                    # Confirmation Logic
+                                    if self.on_tool_confirmation:
+                                        import uuid
+                                        request_id = str(uuid.uuid4())
                                     print(f"[ADA DEBUG] [STOP] Requesting confirmation for '{fc.name}' (ID: {request_id})")
                                     
                                     future = asyncio.Future()
@@ -370,7 +385,19 @@ class AudioLoop:
                                         function_responses.append(function_response)
                                         continue
 
-                                # If confirmed (or no callback configured), proceed
+                                    if not confirmed:
+                                        print(f"[ADA DEBUG] [DENY] Tool call '{fc.name}' denied by user.")
+                                        function_response = types.FunctionResponse(
+                                            id=fc.id,
+                                            name=fc.name,
+                                            response={
+                                                "result": "User denied the request to use this tool.",
+                                            }
+                                        )
+                                        function_responses.append(function_response)
+                                        continue
+
+                                # If confirmed (or no callback configured, or auto-allowed), proceed
                                 if fc.name == "generate_cad":
                                     print(f"\n[ADA DEBUG] --------------------------------------------------")
                                     print(f"[ADA DEBUG] [TOOL] Tool Call Detected: 'generate_cad'")
