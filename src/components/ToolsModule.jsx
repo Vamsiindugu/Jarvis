@@ -21,11 +21,13 @@ const ToolsModule = ({
     showKasaWindow,
     activeDragElement,
 
-    position
+    position,
+    onMouseDown
 }) => {
     return (
         <div
             id="tools"
+            onMouseDown={onMouseDown}
             className={`absolute px-6 py-3 transition-all duration-200 
                 backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl rounded-full
                 ${isModularMode ? (activeDragElement === 'tools' ? 'ring-2 ring-green-500 bg-green-500/10' : 'ring-1 ring-cyan-500/30') : ''}

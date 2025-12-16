@@ -1,15 +1,17 @@
 from build123d import *
 
-# Create a 2 inch cube
-# build123d works in millimeters by default, so we use the IN constant (25.4) 
-# to ensure the dimensions are physically 2 inches.
-side_length = 2 * IN
+# Dimensions
+# The request is for a 2-inch sphere.
+# Diameter = 2 inches -> Radius = 1 inch.
+# CAD and STL files typically interpret 1 unit as 1 millimeter.
+# To ensure the physical size is correct (2 inches), we convert to mm.
+radius_mm = 1.0 * 25.4
 
 with BuildPart() as p:
-    # Box creates a centered cube by default
-    Box(side_length, side_length, side_length)
+    # Create a sphere centered at (0,0,0)
+    Sphere(radius=radius_mm)
 
 result_part = p.part
 
-# Export the final part to STL
+# Export to STL
 export_stl(result_part, 'output.stl')

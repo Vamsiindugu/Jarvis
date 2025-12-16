@@ -110,6 +110,10 @@ function App() {
     const smoothedCursorPosRef = useRef({ x: 0, y: 0 });
     const snapStateRef = useRef({ isSnapped: false, element: null, snapPos: { x: 0, y: 0 } });
 
+    // Mouse Drag Refs
+    const dragOffsetRef = useRef({ x: 0, y: 0 });
+    const isDraggingRef = useRef(false);
+
     // Update refs when state changes
     // Update refs when state changes
     useEffect(() => {
@@ -876,6 +880,99 @@ function App() {
         });
     };
 
+    // --- MOUSE DRAG HANDLERS ---
+    const handleMouseDown = (e, id) => {
+        console.log(`[MouseDrag] MouseDown on ${id}`, { isModularMode: isModularModeRef.current, target: e.target.tagName });
+        if (!isModularModeRef.current) return;
+
+        // Prevent dragging if interacting with inputs or buttons, unless it's the header
+        if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'button' || e.target.closest('button')) {
+            console.log("[MouseDrag] Interaction blocked by input/button");
+            return;
+        }
+
+        const elPos = elementPositions[id];
+        if (!elPos) return;
+
+        // Calculate offset based on anchor point
+        // Most are Center Anchored (x, y is center)
+        // Chat is Top-Center Anchored (x is center, y is top)
+        // Video is Top-Left Anchored (x is left, y is top)
+
+        // We want: MousePos = ElementPos + Offset
+        // So: Offset = MousePos - ElementPos
+        dragOffsetRef.current = {
+            x: e.clientX - elPos.x,
+            y: e.clientY - elPos.y
+        };
+
+        setActiveDragElement(id);
+        activeDragElementRef.current = id;
+        isDraggingRef.current = true;
+
+        window.addEventListener('mousemove', handleMouseDrag);
+        window.addEventListener('mouseup', handleMouseUp);
+    };
+
+    const handleMouseDrag = (e) => {
+        if (!isDraggingRef.current || !activeDragElementRef.current) return;
+
+        const id = activeDragElementRef.current;
+        const currentPos = elementPositionsRef.current[id];
+        if (!currentPos) return;
+
+        // Target Position = MousePos - Offset
+        // But we want delta for updateElementPosition??
+        // actually updateElementPosition takes dx, dy.
+        // Let's just set the position directly or calculate delta.
+        // Since updateElementPosition has bounds logic, let's use it, but we need delta from PREVIOUS position?
+        // OR we can refactor updateElementPosition to take absolute.
+        // Let's stick to calculating new position and manually updating state with bounds logic inside a setter.
+
+        // Actually, updateElementPosition uses setElementPositions(prev => ...).
+        // Let's duplicate bounds logic for mouse drag to be precise or reuse.
+        // reusing updateElementPosition requires calculating dx/dy from *current state* which might be lagging in the closure?
+        // No, functional update is fine.
+
+        // But for smooth mouse drag, absolute position is better.
+        const rawNewX = e.clientX - dragOffsetRef.current.x;
+        const rawNewY = e.clientY - dragOffsetRef.current.y;
+
+        setElementPositions(prev => {
+            const size = elementSizes[id] || { w: 100, h: 100 }; // Fallback
+            let newX = rawNewX;
+            let newY = rawNewY;
+
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const margin = 0;
+
+            if (id === 'chat') {
+                newX = Math.max(size.w / 2 + margin, Math.min(width - size.w / 2 - margin, newX));
+                newY = Math.max(margin, Math.min(height - size.h - margin, newY));
+            } else if (id === 'video') {
+                newX = Math.max(margin, Math.min(width - size.w - margin, newX));
+                newY = Math.max(margin, Math.min(height - size.h - margin, newY));
+            } else {
+                newX = Math.max(size.w / 2 + margin, Math.min(width - size.w / 2 - margin, newX));
+                newY = Math.max(size.h / 2 + margin, Math.min(height - size.h / 2 - margin, newY));
+            }
+
+            return {
+                ...prev,
+                [id]: { x: newX, y: newY }
+            };
+        });
+    };
+
+    const handleMouseUp = () => {
+        isDraggingRef.current = false;
+        setActiveDragElement(null);
+        activeDragElementRef.current = null;
+        window.removeEventListener('mousemove', handleMouseDrag);
+        window.removeEventListener('mouseup', handleMouseUp);
+    };
+
     // Calculate Average Audio Amplitude for Background Pulse
     const audioAmp = aiAudioData.reduce((a, b) => a + b, 0) / aiAudioData.length / 255;
 
@@ -972,9 +1069,9 @@ function App() {
                 {/* Central Visualizer (AI Audio) */}
                 <div
                     id="visualizer"
-                    className={`absolute flex items-center justify-center pointer-events-none transition-all duration-200 
+                    className={`absolute flex items-center justify-center transition-all duration-200 
                         backdrop-blur-xl bg-black/30 border border-white/10 shadow-2xl overflow-visible
-                        ${isModularMode ? (activeDragElement === 'visualizer' ? 'ring-2 ring-green-500 bg-green-500/10' : 'ring-1 ring-yellow-500/30 bg-yellow-500/5') + ' rounded-2xl' : 'rounded-2xl'}
+                        ${isModularMode ? (activeDragElement === 'visualizer' ? 'ring-2 ring-green-500 bg-green-500/10' : 'ring-1 ring-yellow-500/30 bg-yellow-500/5') + ' rounded-2xl pointer-events-auto' : 'rounded-2xl pointer-events-none'}
                     `}
                     style={{
                         left: elementPositions.visualizer.x,
@@ -983,6 +1080,7 @@ function App() {
                         width: elementSizes.visualizer.w,
                         height: elementSizes.visualizer.h
                     }}
+                    onMouseDown={(e) => handleMouseDown(e, 'visualizer')}
                 >
                     <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
                     <div className="relative z-20">
@@ -1009,6 +1107,7 @@ function App() {
                         left: elementPositions.video.x,
                         top: elementPositions.video.y,
                     }}
+                    onMouseDown={(e) => handleMouseDown(e, 'video')}
                 >
                     <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5 pointer-events-none mix-blend-overlay"></div>
                     {/* 16:9 Aspect Ratio Container */}
@@ -1134,6 +1233,7 @@ function App() {
                     position={elementPositions.chat}
                     width={elementSizes.chat.w}
                     height={elementSizes.chat.h}
+                    onMouseDown={(e) => handleMouseDown(e, 'chat')}
                 />
 
                 {/* Footer Controls / Tools Module */}
@@ -1155,6 +1255,7 @@ function App() {
                         onToggleKasa={toggleKasaWindow}
                         activeDragElement={activeDragElement}
                         position={elementPositions.tools}
+                        onMouseDown={(e) => handleMouseDown(e, 'tools')}
                     />
                 </div>
 
@@ -1167,6 +1268,7 @@ function App() {
                         setActiveDragElement={setActiveDragElement}
                         devices={kasaDevices}
                         onClose={() => setShowKasaWindow(false)}
+                        onMouseDown={(e) => handleMouseDown(e, 'kasa')}
                     />
                 )}
 

@@ -6,6 +6,7 @@ __pycache__/
 venv/
 .venv/
 env/
+backend/output.stl
 
 # Node.js
 node_modules/

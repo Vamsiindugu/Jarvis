@@ -9,7 +9,8 @@ const ChatModule = ({
     activeDragElement,
     position,
     width = 672, // default max-w-2xl
-    height
+    height,
+    onMouseDown
 }) => {
     const messagesEndRef = useRef(null);
 
@@ -24,6 +25,7 @@ const ChatModule = ({
     return (
         <div
             id="chat"
+            onMouseDown={onMouseDown}
             className={`absolute px-6 py-4 pointer-events-auto transition-all duration-200 
             backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl rounded-2xl
             ${isModularMode ? (activeDragElement === 'chat' ? 'ring-2 ring-green-500' : 'ring-1 ring-yellow-500/30') : ''}
