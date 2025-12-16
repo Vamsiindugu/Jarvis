@@ -174,3 +174,139 @@ Original request: {prompt}
             traceback.print_exc()
             return None
 
+    async def iterate_prototype(self, prompt: str):
+        """
+        Iterates on the existing design by reading 'temp_cad_gen.py' and applying changes.
+        """
+        print(f"[CadAgent DEBUG] [START] Iteration started for: '{prompt}'")
+        
+        script_name = "temp_cad_gen.py"
+        existing_code = ""
+        
+        if os.path.exists(script_name):
+            with open(script_name, "r") as f:
+                existing_code = f.read()
+        else:
+             print("[CadAgent DEBUG] [WARN] No existing script found. Falling back to fresh generation.")
+             return await self.generate_prototype(prompt)
+
+        try:
+            # Clean up old output
+            if os.path.exists("output.stl"):
+                os.remove("output.stl")
+
+            max_retries = 3
+            current_prompt = f"""
+You are iterating on an existing 3D model script.
+
+Current Python Code:
+```python
+{existing_code}
+```
+
+User Request: {prompt}
+
+Task: Rewrite the code to satisfy the user's request while maintaining the rest of the model structure.
+Ensure you still export to 'output.stl'.
+"""
+            
+            for attempt in range(max_retries):
+                print(f"[CadAgent DEBUG] Iteration Attempt {attempt + 1}/{max_retries}")
+                
+                # 1. Ask Gemini for the code (NO cloud execution)
+                response = await self.client.aio.models.generate_content(
+                    model=self.model,
+                    contents=current_prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=self.system_instruction,
+                        temperature=0.7 
+                    )
+                )
+                
+                raw_content = response.text
+                if not raw_content:
+                    print("[CadAgent DEBUG] [ERR] Empty response from model.")
+                    return None
+
+                # 2. Extract Code Block
+                import re
+                code_match = re.search(r'```python(.*?)```', raw_content, re.DOTALL)
+                if code_match:
+                    code = code_match.group(1).strip()
+                else:
+                    # Fallback: assume entire text is code if no blocks, or fail
+                    print("[CadAgent DEBUG] [WARN] No ```python block found. Trying heuristic...")
+                    if "import build123d" in raw_content:
+                        code = raw_content
+                    else:
+                        print("[CadAgent DEBUG] [ERR] Could not extract python code.")
+                        return None
+                
+                # 3. Save to Local File
+                # Overwrite the temp file so the next iteration builds on this one
+                with open(script_name, "w") as f:
+                    f.write(code)
+                    
+                print(f"[CadAgent DEBUG] [EXEC] Running local script: {script_name}")
+                
+                 # 4. Execute Locally
+                import subprocess
+                import sys
+                
+                # Use the dedicated environment for CAD generation to avoid numpy conflicts
+                # Main env: numpy < 2 (for face_recognition)
+                # CAD env: numpy >= 2 (for build123d)
+                cad_python_path = "/opt/anaconda3/envs/ada_cad_env/bin/python"
+                
+                proc = await asyncio.create_subprocess_exec(
+                    cad_python_path, script_name,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                stdout, stderr = await proc.communicate()
+                
+                if proc.returncode != 0:
+                    error_msg = stderr.decode()
+                    print(f"[CadAgent DEBUG] [ERR] Script Execution Failed:\n{error_msg}")
+                    
+                    # Preparing feedback for next attempt
+                    current_prompt = f"""
+The updated Python script you generated failed to execute with the following error:
+{error_msg}
+
+Please fix the code to resolve this error. Return the full corrected script. 
+Ensure you still export to 'output.stl'.
+"""
+                    continue # Retry loop
+                
+                print(f"[CadAgent DEBUG] [OK] Script executed successfully.")
+                
+                # 5. Read Output
+                if os.path.exists("output.stl"):
+                    print("[CadAgent DEBUG] [file] 'output.stl' found.")
+                    with open("output.stl", "rb") as f:
+                        stl_data = f.read()
+                        
+                    import base64
+                    b64_stl = base64.b64encode(stl_data).decode('utf-8')
+                    
+                    return {
+                        "format": "stl",
+                        "data": b64_stl
+                    }
+                else:
+                     print("[CadAgent DEBUG] [ERR] 'output.stl' was not generated.")
+                     current_prompt = f"The script executed successfully but 'output.stl' was not found. Ensure you call `export_stl(result_part, 'output.stl')` at the end."
+                     continue
+
+            # If loop finishes without success
+            print("[CadAgent DEBUG] [ERR] All attempts failed.")
+            return None
+
+        except Exception as e:
+            print(f"CadAgent Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+

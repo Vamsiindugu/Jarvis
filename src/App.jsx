@@ -183,6 +183,19 @@ function App() {
                 }));
             }
         });
+        socket.on('cad_status', (data) => {
+            console.log("Received CAD Status:", data.status);
+            if (data.status === 'generating') {
+                setCadData({ format: 'loading' });
+                // Auto-show the window
+                if (!elementPositions.cad) {
+                    setElementPositions(prev => ({
+                        ...prev,
+                        cad: { x: window.innerWidth / 2 + 200, y: window.innerHeight / 2 }
+                    }));
+                }
+            }
+        });
         socket.on('browser_frame', (data) => {
             setBrowserData(prev => ({
                 image: data.image,
@@ -978,7 +991,7 @@ function App() {
                     >
                         <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
                         <div className="relative z-20 w-full h-full">
-                            <CadWindow data={cadData} onClose={() => setCadData(null)} />
+                            <CadWindow data={cadData} onClose={() => setCadData(null)} socket={socket} />
                         </div>
                         {isModularMode && <div className={`absolute top-2 left-2 text-xs font-bold tracking-widest z-20 ${activeDragElement === 'cad' ? 'text-green-500' : 'text-cyan-500/50'}`}>CAD PROTOTYPE</div>}
                     </div>

@@ -120,6 +120,12 @@ async def start_audio(sid, data=None):
         print(f"Requesting confirmation for tool: {data.get('tool')}")
         asyncio.create_task(sio.emit('tool_confirmation_request', data))
 
+    # Callback to send CAD status to frontend
+    def on_cad_status(status):
+        # status: "generating", "complete", etc.
+        print(f"Sending CAD Status: {status}")
+        asyncio.create_task(sio.emit('cad_status', {'status': status}))
+
     # Initialize ADA
     try:
         audio_loop = ada.AudioLoop(
@@ -129,6 +135,7 @@ async def start_audio(sid, data=None):
             on_web_data=on_web_data,
             on_transcription=on_transcription,
             on_tool_confirmation=on_tool_confirmation,
+            on_cad_status=on_cad_status,
             input_device_index=device_index
         )
         
@@ -297,8 +304,43 @@ async def discover_kasa(sid):
         await sio.emit('kasa_devices', devices)
         await sio.emit('status', {'msg': f"Found {len(devices)} Kasa devices"})
     except Exception as e:
+        await sio.emit('status', {'msg': f"Found {len(devices)} Kasa devices"})
+    except Exception as e:
         print(f"Error discovering kasa: {e}")
         await sio.emit('error', {'msg': f"Kasa Discovery Failed: {str(e)}"})
+
+@sio.event
+async def iterate_cad(sid, data):
+    # data: { prompt: "make it bigger" }
+    prompt = data.get('prompt')
+    print(f"Received iterate_cad request: '{prompt}'")
+    
+    if not audio_loop or not audio_loop.cad_agent:
+        await sio.emit('error', {'msg': "CAD Agent not available"})
+        return
+
+    try:
+        # Notify user work has started
+        await sio.emit('status', {'msg': 'Iterating design...'})
+        await sio.emit('cad_status', {'status': 'generating'})
+        
+        # Call the agent
+        # Note: We need access to the cad_agent instance. 
+        # Since it's inside AudioLoop, we should probably access it there or make it global.
+        # Ideally, AudioLoop exposes it. Let's assume it does for now via `audio_loop.cad_agent`.
+        result = await audio_loop.cad_agent.iterate_prototype(prompt)
+        
+        if result:
+            info = f"{len(result.get('data', ''))} bytes (STL)"
+            print(f"Sending updated CAD data: {info}")
+            await sio.emit('cad_data', result)
+            await sio.emit('status', {'msg': 'Design updated'})
+        else:
+            await sio.emit('error', {'msg': 'Failed to update design'})
+            
+    except Exception as e:
+        print(f"Error iterating CAD: {e}")
+        await sio.emit('error', {'msg': f"Iteration Error: {str(e)}"})
 
 @sio.event
 async def control_kasa(sid, data):

@@ -89,14 +89,15 @@ from cad_agent import CadAgent
 from web_agent import WebAgent
 
 class AudioLoop:
-    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, input_device_index=None, output_device_index=None):
+    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, input_device_index=None, output_device_index=None):
         self.video_mode = video_mode
         self.on_audio_data = on_audio_data
         self.on_video_frame = on_video_frame
         self.on_cad_data = on_cad_data
         self.on_web_data = on_web_data
         self.on_transcription = on_transcription
-        self.on_tool_confirmation = on_tool_confirmation # New Callback
+        self.on_tool_confirmation = on_tool_confirmation 
+        self.on_cad_status = on_cad_status # New Callback
         self.input_device_index = input_device_index
         self.output_device_index = output_device_index
 
@@ -185,6 +186,8 @@ class AudioLoop:
 
     async def handle_cad_request(self, prompt):
         print(f"[ADA DEBUG] [CAD] Background Task Started: handle_cad_request('{prompt}')")
+        if self.on_cad_status:
+            self.on_cad_status("generating")
         # Call the secondary agent
         cad_data = await self.cad_agent.generate_prototype(prompt)
         

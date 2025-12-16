@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Canvas, useLoader } from '@react-three/fiber';
+import { Canvas, useLoader, useFrame } from '@react-three/fiber';
 import { OrbitControls, Center, Stage } from '@react-three/drei';
 import * as THREE from 'three';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
@@ -12,8 +12,25 @@ const GeometryModel = ({ geometry }) => {
     );
 };
 
-const CadWindow = ({ data, onClose }) => {
+const LoadingCube = () => {
+    const meshRef = React.useRef();
+    useFrame((state, delta) => {
+        meshRef.current.rotation.x += delta;
+        meshRef.current.rotation.y += delta;
+    });
+    return (
+        <mesh ref={meshRef}>
+            <boxGeometry args={[10, 10, 10]} />
+            <meshStandardMaterial wireframe color="cyan" transparent opacity={0.5} />
+        </mesh>
+    );
+};
+
+const CadWindow = ({ data, onClose, socket }) => {
     // data format: { format: "stl", data: "base64..." }
+    const [isIterating, setIsIterating] = useState(false);
+    const [prompt, setPrompt] = useState("");
+    const [isSending, setIsSending] = useState(false);
 
     // Debug log
     useEffect(() => {
@@ -43,24 +60,89 @@ const CadWindow = ({ data, onClose }) => {
         }
     }, [data]);
 
+    const handleIterate = () => {
+        if (!prompt.trim()) return;
+        setIsSending(true);
+        // Assuming socket is passed as prop or available globally. 
+        // If not, we might need to emit via window event or refactor App.jsx to pass it.
+        // For now, looking at App.jsx structure, socket might not be prop. 
+        // If socket is missing, we can use window.socket if available or emit a custom event.
+
+        if (socket) {
+            socket.emit('iterate_cad', { prompt });
+        } else {
+            console.error("Socket not available in CadWindow");
+        }
+
+        setIsIterating(false);
+        setPrompt("");
+        setIsSending(false);
+    };
+
     return (
         <div className="w-full h-full relative group bg-gray-900 rounded-lg overflow-hidden border border-cyan-500/30">
+            {/* Close Button */}
             <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button onClick={onClose} className="bg-red-500/20 hover:bg-red-500/50 text-red-500 p-1 rounded">X</button>
             </div>
+
+            {/* Iterate Button (Top Left) */}
+            <div className="absolute top-2 left-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                    onClick={() => setIsIterating(true)}
+                    className="bg-cyan-500/20 hover:bg-cyan-500/50 text-cyan-400 text-xs px-2 py-1 rounded border border-cyan-500/30 backdrop-blur-sm"
+                >
+                    ITERATE
+                </button>
+            </div>
+
+            {/* Iteration Overlay */}
+            {isIterating && (
+                <div className="absolute inset-0 z-20 bg-black/80 flex items-center justify-center p-4">
+                    <div className="bg-gray-800 border border-cyan-500/50 rounded p-4 w-full max-w-sm pointer-events-auto shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+                        <h4 className="text-cyan-400 text-sm mb-2 font-mono">Refine Design</h4>
+                        <textarea
+                            value={prompt}
+                            onChange={(e) => setPrompt(e.target.value)}
+                            placeholder="e.g., Make the wheels bigger..."
+                            className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white text-sm mb-3 focus:outline-none focus:border-cyan-500 h-24"
+                            autoFocus
+                        />
+                        <div className="flex justify-end gap-2">
+                            <button
+                                onClick={() => setIsIterating(false)}
+                                className="text-gray-400 text-xs hover:text-white px-2 py-1"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleIterate}
+                                disabled={isSending}
+                                className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs px-3 py-1 rounded"
+                            >
+                                {isSending ? "Sending..." : "Update"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <Canvas shadows camera={{ position: [4, 4, 4], fov: 45 }}>
                 <color attach="background" args={['#101010']} />
 
                 <Stage environment="city" intensity={0.5}>
-                    {geometry && (
-                        <Center>
-                            <GeometryModel geometry={geometry} />
-                        </Center>
+                    {data?.format === 'loading' ? (
+                        <LoadingCube />
+                    ) : (
+                        geometry && (
+                            <Center>
+                                <GeometryModel geometry={geometry} />
+                            </Center>
+                        )
                     )}
                 </Stage>
 
-                <OrbitControls autoRotate autoRotateSpeed={1} makeDefault />
+                <OrbitControls autoRotate={!isIterating} autoRotateSpeed={1} makeDefault />
             </Canvas>
 
             <div className="absolute bottom-2 left-2 text-[10px] text-cyan-500/50 font-mono tracking-widest pointer-events-none">
