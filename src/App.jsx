@@ -12,6 +12,8 @@ import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import MemoryPrompt from './components/MemoryPrompt';
 import ConfirmationPopup from './components/ConfirmationPopup';
 import AuthLock from './components/AuthLock';
+import KasaWindow from './components/KasaWindow';
+
 
 const socket = io('http://localhost:8000');
 const { ipcRenderer } = window.require('electron');
@@ -32,6 +34,9 @@ function App() {
     const [browserData, setBrowserData] = useState({ image: null, logs: [] });
     const [showMemoryPrompt, setShowMemoryPrompt] = useState(false);
     const [confirmationRequest, setConfirmationRequest] = useState(null); // { id, tool, args }
+    const [kasaDevices, setKasaDevices] = useState([]);
+    const [showKasaWindow, setShowKasaWindow] = useState(false);
+
 
     // RESTORED STATE
     const [aiAudioData, setAiAudioData] = useState(new Array(64).fill(0));
@@ -51,7 +56,9 @@ function App() {
 
         cad: { x: window.innerWidth / 2 + 300, y: window.innerHeight / 2 },
         browser: { x: window.innerWidth / 2 - 300, y: window.innerHeight / 2 },
+        kasa: { x: window.innerWidth / 2 + 350, y: window.innerHeight / 2 - 100 },
         tools: { x: window.innerWidth / 2, y: window.innerHeight - 30 }
+
     });
     const [activeDragElement, setActiveDragElement] = useState(null);
 
@@ -140,7 +147,11 @@ function App() {
     // Auto-Connect Model on Start (Only after Auth)
     useEffect(() => {
         if (isConnected && isAuthenticated) {
+            // Trigger Kasa Discovery
+            socket.emit('discover_kasa');
+
             // Wait brief moment for socket to stabilize/devices to load, then connect
+
             const timer = setTimeout(() => {
                 const index = devices.findIndex(d => d.deviceId === selectedDeviceId);
                 socket.emit('start_audio', {
@@ -216,7 +227,30 @@ function App() {
         socket.on('tool_confirmation_request', (data) => {
             console.log("Received Confirmation Request:", data);
             setConfirmationRequest(data);
+            setConfirmationRequest(data);
         });
+
+        // Kasa Devices
+        socket.on('kasa_devices', (devices) => {
+            console.log("Kasa Devices:", devices);
+            setKasaDevices(devices);
+        });
+
+        socket.on('kasa_update', (data) => {
+            setKasaDevices(prev => prev.map(d => {
+                if (d.ip === data.ip) {
+                    // Update only fields that are not null/undefined
+                    return {
+                        ...d,
+                        is_on: data.is_on !== null ? data.is_on : d.is_on,
+                        brightness: data.brightness !== null ? data.brightness : d.brightness
+                    };
+                }
+                return d;
+            }));
+        });
+
+
 
         // Get Audio Devices
         navigator.mediaDevices.enumerateDevices().then(devs => {
@@ -273,7 +307,10 @@ function App() {
             socket.off('cad_data');
             socket.off('browser_frame');
             socket.off('transcription');
+            socket.off('transcription');
             socket.off('tool_confirmation_request');
+            socket.off('kasa_devices');
+
             stopMicVisualizer();
             stopVideo();
         };
@@ -540,7 +577,8 @@ function App() {
                     if (isFist) {
                         if (!activeDragElementRef.current) {
                             // Check collision with draggable elements
-                            const elements = ['video', 'visualizer', 'chat', 'cad', 'browser', 'tools'];
+                            const elements = ['video', 'visualizer', 'chat', 'cad', 'browser', 'kasa', 'tools'];
+
                             for (const id of elements) {
                                 const el = document.getElementById(id);
                                 if (el) {
@@ -738,6 +776,15 @@ function App() {
 
     // Calculate Average Audio Amplitude for Background Pulse
     const audioAmp = aiAudioData.reduce((a, b) => a + b, 0) / aiAudioData.length / 255;
+
+    const toggleKasaWindow = () => {
+        if (!showKasaWindow) {
+            // Maybe trigger discover instantly?
+            if (kasaDevices.length === 0) socket.emit('discover_kasa');
+        }
+        setShowKasaWindow(!showKasaWindow);
+    };
+
 
     return (
         <div className="h-screen w-screen bg-black text-cyan-100 font-mono overflow-hidden flex flex-col relative selection:bg-cyan-900 selection:text-white">
@@ -988,16 +1035,30 @@ function App() {
                         isModularMode={isModularMode}
                         isHandTrackingEnabled={isHandTrackingEnabled}
                         showSettings={showSettings}
+                        showKasaWindow={showKasaWindow}
                         onTogglePower={togglePower}
                         onToggleMute={toggleMute}
                         onToggleVideo={toggleVideo}
                         onToggleSettings={() => setShowSettings(!showSettings)}
                         onToggleLayout={() => setIsModularMode(!isModularMode)}
                         onToggleHand={() => setIsHandTrackingEnabled(!isHandTrackingEnabled)}
+                        onToggleKasa={toggleKasaWindow}
                         activeDragElement={activeDragElement}
                         position={elementPositions.tools}
                     />
                 </div>
+
+                {/* Kasa Window */}
+                {showKasaWindow && (
+                    <KasaWindow
+                        socket={socket}
+                        position={elementPositions.kasa}
+                        activeDragElement={activeDragElement}
+                        setActiveDragElement={setActiveDragElement}
+                        devices={kasaDevices}
+                        onClose={() => setShowKasaWindow(false)}
+                    />
+                )}
 
                 {/* Memory Prompt Modal */}
                 {showMemoryPrompt && (

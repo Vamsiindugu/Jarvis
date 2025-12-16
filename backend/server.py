@@ -13,7 +13,9 @@ from pathlib import Path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import ada
+import ada
 from authenticator import FaceAuthenticator
+from kasa_agent import KasaAgent
 
 # Create a Socket.IO server
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
@@ -23,7 +25,10 @@ app_socketio = socketio.ASGIApp(sio, app)
 # Global state
 audio_loop = None
 loop_task = None
+audio_loop = None
+loop_task = None
 authenticator = None
+kasa_agent = KasaAgent()
 
 @app.get("/status")
 async def status():
@@ -282,6 +287,54 @@ async def upload_memory(sid, data):
     except Exception as e:
         print(f"Error uploading memory: {e}")
         await sio.emit('error', {'msg': f"Failed to upload memory: {str(e)}"})
+
+@sio.event
+async def discover_kasa(sid):
+    print(f"Received discover_kasa request")
+    try:
+        devices = await kasa_agent.discover_devices()
+        await sio.emit('kasa_devices', devices)
+        await sio.emit('status', {'msg': f"Found {len(devices)} Kasa devices"})
+    except Exception as e:
+        print(f"Error discovering kasa: {e}")
+        await sio.emit('error', {'msg': f"Kasa Discovery Failed: {str(e)}"})
+
+@sio.event
+async def control_kasa(sid, data):
+    # data: { ip, action: "on"|"off"|"brightness"|"color", value: ... }
+    ip = data.get('ip')
+    action = data.get('action')
+    print(f"Kasa Control: {ip} -> {action}")
+    
+    try:
+        success = False
+        if action == "on":
+            success = await kasa_agent.turn_on(ip)
+        elif action == "off":
+            success = await kasa_agent.turn_off(ip)
+        elif action == "brightness":
+            val = data.get('value')
+            success = await kasa_agent.set_brightness(ip, val)
+        elif action == "color":
+            # value is {h, s, v}
+            h = data.get('value', {}).get('h', 0)
+            s = data.get('value', {}).get('s', 0)
+            v = data.get('value', {}).get('v', 100)
+            success = await kasa_agent.set_hsv(ip, h, s, v)
+        
+        if success:
+            await sio.emit('kasa_update', {
+                'ip': ip,
+                'is_on': True if action == "on" else (False if action == "off" else None),
+                'brightness': data.get('value') if action == "brightness" else None,
+            })
+ 
+        else:
+             await sio.emit('error', {'msg': f"Failed to control device {ip}"})
+
+    except Exception as e:
+         print(f"Error controlling kasa: {e}")
+         await sio.emit('error', {'msg': f"Kasa Control Error: {str(e)}"})
 
 if __name__ == "__main__":
     uvicorn.run(app_socketio, host="127.0.0.1", port=8000)

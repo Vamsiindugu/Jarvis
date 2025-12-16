@@ -1,5 +1,7 @@
 import React from 'react';
-import { Mic, MicOff, Settings, Power, Video, VideoOff, Layout, Hand } from 'lucide-react';
+
+import { Mic, MicOff, Settings, Power, Video, VideoOff, Layout, Hand, Lightbulb } from 'lucide-react';
+
 
 const ToolsModule = ({
     isConnected,
@@ -13,8 +15,12 @@ const ToolsModule = ({
     onToggleVideo,
     onToggleSettings,
     onToggleLayout,
+
     onToggleHand,
+    onToggleKasa,
+    showKasaWindow,
     activeDragElement,
+
     position
 }) => {
     return (
@@ -100,6 +106,18 @@ const ToolsModule = ({
                 >
                     <Hand size={24} />
                 </button>
+
+                {/* Kasa Light Control */}
+                <button
+                    onClick={onToggleKasa}
+                    className={`p-3 rounded-full border-2 transition-all duration-300 ${showKasaWindow
+                        ? 'border-yellow-300 bg-yellow-300/10 text-yellow-300 hover:bg-yellow-300/20 shadow-[0_0_15px_rgba(253,224,71,0.3)]'
+                        : 'border-cyan-900 text-cyan-700 hover:border-cyan-500 hover:text-cyan-500'
+                        }`}
+                >
+                    <Lightbulb size={24} />
+                </button>
+
             </div>
             {isModularMode && <div className={`absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold tracking-widest ${activeDragElement === 'tools' ? 'text-green-500' : 'text-yellow-500/50'}`}>TOOLS</div>}
         </div>
