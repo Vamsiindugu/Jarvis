@@ -60,7 +60,7 @@ run_web_agent = {
     "behavior": "NON_BLOCKING"
 }
 
-tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent]}]
+tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent] + tools_list[0]['function_declarations'][1:]}]
 
 # --- CONFIG UPDATE: Enabled Transcription ---
 config = types.LiveConnectConfig(
@@ -216,6 +216,72 @@ class AudioLoop:
             except Exception:
                 pass
 
+    async def handle_create_directory(self, path):
+        print(f"[ADA DEBUG] [FS] Creating directory: '{path}'")
+        try:
+            os.makedirs(path, exist_ok=True)
+            result = f"Directory '{path}' created successfully."
+        except Exception as e:
+            result = f"Failed to create directory '{path}': {str(e)}"
+        
+        print(f"[ADA DEBUG] [FS] Result: {result}")
+        try:
+             await self.session.send(input=f"System Notification: {result}", end_of_turn=True)
+        except Exception as e:
+             print(f"[ADA DEBUG] [ERR] Failed to send fs result: {e}")
+
+    async def handle_write_file(self, path, content):
+        print(f"[ADA DEBUG] [FS] Writing file: '{path}'")
+        try:
+            # Ensure parent exists
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            result = f"File '{path}' written successfully."
+        except Exception as e:
+            result = f"Failed to write file '{path}': {str(e)}"
+
+        print(f"[ADA DEBUG] [FS] Result: {result}")
+        try:
+             await self.session.send(input=f"System Notification: {result}", end_of_turn=True)
+        except Exception as e:
+             print(f"[ADA DEBUG] [ERR] Failed to send fs result: {e}")
+
+    async def handle_read_directory(self, path):
+        print(f"[ADA DEBUG] [FS] Reading directory: '{path}'")
+        try:
+            if not os.path.exists(path):
+                result = f"Directory '{path}' does not exist."
+            else:
+                items = os.listdir(path)
+                result = f"Contents of '{path}': {', '.join(items)}"
+        except Exception as e:
+            result = f"Failed to read directory '{path}': {str(e)}"
+
+        print(f"[ADA DEBUG] [FS] Result: {result}")
+        try:
+             await self.session.send(input=f"System Notification: {result}", end_of_turn=True)
+        except Exception as e:
+             print(f"[ADA DEBUG] [ERR] Failed to send fs result: {e}")
+
+    async def handle_read_file(self, path):
+        print(f"[ADA DEBUG] [FS] Reading file: '{path}'")
+        try:
+            if not os.path.exists(path):
+                result = f"File '{path}' does not exist."
+            else:
+                with open(path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                result = f"Content of '{path}':\n{content}"
+        except Exception as e:
+            result = f"Failed to read file '{path}': {str(e)}"
+
+        print(f"[ADA DEBUG] [FS] Result: {result}")
+        try:
+             await self.session.send(input=f"System Notification: {result}", end_of_turn=True)
+        except Exception as e:
+             print(f"[ADA DEBUG] [ERR] Failed to send fs result: {e}")
+
     async def handle_web_agent_request(self, prompt):
         print(f"[ADA DEBUG] [WEB] Web Agent Task: '{prompt}'")
         
@@ -265,8 +331,8 @@ class AudioLoop:
                         print("The tool was called")
                         function_responses = []
                         for fc in response.tool_call.function_calls:
-                            if fc.name in ["generate_cad", "run_web_agent"]:
-                                prompt = fc.args["prompt"]
+                            if fc.name in ["generate_cad", "run_web_agent", "create_directory", "write_file", "read_directory", "read_file"]:
+                                prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
                                 
                                 # Confirmation Logic
                                 if self.on_tool_confirmation:
@@ -337,7 +403,44 @@ class AudioLoop:
                                     )
                                     print(f"[ADA DEBUG] [RESPONSE] Sending function response: {function_response}")
                                     function_responses.append(function_response)
+                                    function_responses.append(function_response)
 
+                                elif fc.name == "create_directory":
+                                    path = fc.args["path"]
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'create_directory' path='{path}'")
+                                    asyncio.create_task(self.handle_create_directory(path))
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": "Creating directory..."}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "write_file":
+                                    path = fc.args["path"]
+                                    content = fc.args["content"]
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'write_file' path='{path}'")
+                                    asyncio.create_task(self.handle_write_file(path, content))
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": "Writing file..."}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "read_directory":
+                                    path = fc.args["path"]
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'read_directory' path='{path}'")
+                                    asyncio.create_task(self.handle_read_directory(path))
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": "Reading directory..."}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "read_file":
+                                    path = fc.args["path"]
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'read_file' path='{path}'")
+                                    asyncio.create_task(self.handle_read_file(path))
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": "Reading file..."}
+                                    )
+                                    function_responses.append(function_response)
                         await self.session.send_tool_response(function_responses=function_responses)
 
                 while not self.audio_in_queue.empty():
