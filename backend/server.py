@@ -39,7 +39,10 @@ DEFAULT_SETTINGS = {
         "create_directory": True,
         "write_file": True,
         "read_directory": True,
-        "read_file": True
+        "read_file": True,
+        "create_project": True,
+        "switch_project": True,
+        "list_projects": True
     }
 }
 
@@ -185,6 +188,11 @@ async def start_audio(sid, data=None):
         print(f"Sending CAD Status: {status}")
         asyncio.create_task(sio.emit('cad_status', {'status': status}))
 
+    # Callback to send Project Update to frontend
+    def on_project_update(project_name):
+        print(f"Sending Project Update: {project_name}")
+        asyncio.create_task(sio.emit('project_update', {'project': project_name}))
+
     # Initialize ADA
     try:
         audio_loop = ada.AudioLoop(
@@ -195,6 +203,7 @@ async def start_audio(sid, data=None):
             on_transcription=on_transcription,
             on_tool_confirmation=on_tool_confirmation,
             on_cad_status=on_cad_status,
+            on_project_update=on_project_update,
 
             input_device_index=device_index
         )
@@ -269,6 +278,11 @@ async def user_input(sid, data):
 
     if text:
         print(f"[SERVER DEBUG] Sending message to model: '{text}'")
+        
+        # Log User Input to Project History
+        if audio_loop and audio_loop.project_manager:
+            audio_loop.project_manager.log_chat("User", text)
+            
         # Use the same 'send' method that worked for audio, as 'send_realtime_input' and 'send_client_content' seem unstable in this env
         await audio_loop.session.send(input=text, end_of_turn=True)
         print(f"[SERVER DEBUG] Message sent to model successfully.")

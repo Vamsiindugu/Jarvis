@@ -8,6 +8,8 @@ venv/
 env/
 backend/output.stl
 backend/projects/
+projects/
+backend/reference.jpg
 
 # Node.js
 node_modules/

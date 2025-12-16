@@ -6,6 +6,9 @@
         "create_directory": false,
         "write_file": false,
         "read_directory": false,
-        "read_file": false
+        "read_file": false,
+        "create_project": false,
+        "switch_project": false,
+        "list_projects": false
     }
 }

@@ -60,7 +60,40 @@ run_web_agent = {
     "behavior": "NON_BLOCKING"
 }
 
-tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent] + tools_list[0]['function_declarations'][1:]}]
+create_project_tool = {
+    "name": "create_project",
+    "description": "Creates a new project folder to organize files.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "name": {"type": "STRING", "description": "The name of the new project."}
+        },
+        "required": ["name"]
+    }
+}
+
+switch_project_tool = {
+    "name": "switch_project",
+    "description": "Switches the current active project context.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "name": {"type": "STRING", "description": "The name of the project to switch to."}
+        },
+        "required": ["name"]
+    }
+}
+
+list_projects_tool = {
+    "name": "list_projects",
+    "description": "Lists all available projects.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {},
+    }
+}
+
+tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool] + tools_list[0]['function_declarations'][1:]}]
 
 # --- CONFIG UPDATE: Enabled Transcription ---
 config = types.LiveConnectConfig(
@@ -89,7 +122,7 @@ from cad_agent import CadAgent
 from web_agent import WebAgent
 
 class AudioLoop:
-    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, input_device_index=None, output_device_index=None):
+    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_project_update=None, input_device_index=None, output_device_index=None):
         self.video_mode = video_mode
         self.on_audio_data = on_audio_data
         self.on_video_frame = on_video_frame
@@ -97,9 +130,16 @@ class AudioLoop:
         self.on_web_data = on_web_data
         self.on_transcription = on_transcription
         self.on_tool_confirmation = on_tool_confirmation 
-        self.on_cad_status = on_cad_status # New Callback
+        self.on_cad_status = on_cad_status 
+        self.on_project_update = on_project_update
         self.input_device_index = input_device_index
         self.output_device_index = output_device_index
+
+        self.audio_in_queue = None
+        self.out_queue = None
+        self.paused = False
+
+        self.chat_buffer = {"sender": None, "text": ""} # For aggregating chunks
 
         self.audio_in_queue = None
         self.out_queue = None
@@ -117,6 +157,28 @@ class AudioLoop:
         
         self.permissions = {} # Default Empty (Will treat unset as True)
         self._pending_confirmations = {}
+
+        # Initialize ProjectManager
+        from project_manager import ProjectManager
+        # Assuming we are running from backend/ or root? 
+        # Using abspath of current file to find root
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # If ada.py is in backend/, project root is one up
+        project_root = os.path.dirname(current_dir)
+        self.project_manager = ProjectManager(project_root)
+        
+        # Sync Initial Project State
+        if self.on_project_update:
+            # We need to defer this slightly or just call it. 
+            # Since this is init, loop might not be running, but on_project_update in server.py uses asyncio.create_task which needs a loop.
+            # We will handle this by calling it in run() or just print for now.
+            pass
+
+    def flush_chat(self):
+        """Forces the current chat buffer to be written to log."""
+        if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
+            self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
+            self.chat_buffer = {"sender": None, "text": ""}
 
     def update_permissions(self, new_perms):
         print(f"[ADA DEBUG] [CONFIG] Updating tool permissions: {new_perms}")
@@ -207,6 +269,9 @@ class AudioLoop:
                 self.on_cad_data(cad_data)
                 print(f"[ADA DEBUG] [SENT] Dispatch complete.")
             
+            # Save to Project
+            self.project_manager.save_cad_artifact("output.stl", prompt)
+
             # Notify the model that the task is done, so it can tell the user
             completion_msg = "System Notification: CAD generation is complete. Inform the user that the model is ready."
             try:
@@ -322,23 +387,49 @@ class AudioLoop:
                         if response.server_content.input_transcription:
                             transcript = response.server_content.input_transcription.text
                             if transcript:
-                                # Send to frontend instead of print
+                                # Send to frontend (Streaming)
                                 if self.on_transcription:
                                      self.on_transcription({"sender": "User", "text": transcript})
+                                
+                                # Buffer for Logging
+                                if self.chat_buffer["sender"] != "User":
+                                    # Flush previous if exists
+                                    if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
+                                        self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
+                                    # Start new
+                                    self.chat_buffer = {"sender": "User", "text": transcript}
+                                else:
+                                    # Append
+                                    self.chat_buffer["text"] += transcript
                         
                         if response.server_content.output_transcription:
                             transcript = response.server_content.output_transcription.text
                             if transcript:
-                                # Send to frontend instead of print
+                                # Send to frontend (Streaming)
                                 if self.on_transcription:
                                      self.on_transcription({"sender": "ADA", "text": transcript})
+                                
+                                # Buffer for Logging
+                                if self.chat_buffer["sender"] != "ADA":
+                                    # Flush previous
+                                    if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
+                                        self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
+                                    # Start new
+                                    self.chat_buffer = {"sender": "ADA", "text": transcript}
+                                else:
+                                    # Append
+                                    self.chat_buffer["text"] += transcript
+                        
+                        # Flush buffer on turn completion if needed, 
+                        # but usually better to wait for sender switch or explicit end.
+                        # We can also check turn_complete signal if available in response.server_content.model_turn etc
 
                     # 3. Handle Tool Calls
                     if response.tool_call:
                         print("The tool was called")
                         function_responses = []
                         for fc in response.tool_call.function_calls:
-                            if fc.name in ["generate_cad", "run_web_agent", "create_directory", "write_file", "read_directory", "read_file"]:
+                            if fc.name in ["generate_cad", "run_web_agent", "create_directory", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects"]:
                                 prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
                                 
                                 # Check Permissions (Default to True if not set)
@@ -468,7 +559,44 @@ class AudioLoop:
                                         id=fc.id, name=fc.name, response={"result": "Reading file..."}
                                     )
                                     function_responses.append(function_response)
+
+                                elif fc.name == "create_project":
+                                    name = fc.args["name"]
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'create_project' name='{name}'")
+                                    success, msg = self.project_manager.create_project(name)
+                                    if success and self.on_project_update:
+                                        # Assuming create also switches, or we just notify creation?
+                                        # Usually creating doesn't auto-switch unless specified.
+                                        # Let's assume just notify or if we want to auto-switch logic inside manager.
+                                        # But switch_project is explicit.
+                                        pass 
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": msg}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "switch_project":
+                                    name = fc.args["name"]
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'switch_project' name='{name}'")
+                                    success, msg = self.project_manager.switch_project(name)
+                                    if success and self.on_project_update:
+                                        self.on_project_update(name)
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": msg}
+                                    )
+                                    function_responses.append(function_response)
+                                
+                                elif fc.name == "list_projects":
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'list_projects'")
+                                    projects = self.project_manager.list_projects()
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": f"Available projects: {', '.join(projects)}"}
+                                    )
+                                    function_responses.append(function_response)
                         await self.session.send_tool_response(function_responses=function_responses)
+                
+                # Turn/Response Loop Finished
+                self.flush_chat()
 
                 while not self.audio_in_queue.empty():
                     self.audio_in_queue.get_nowait()
@@ -549,6 +677,10 @@ class AudioLoop:
                 if start_message:
                     print(f"[ADA DEBUG] [INFO] Sending start message: {start_message}")
                     await self.session.send(input=start_message, end_of_turn=True)
+                
+                # Sync Project State
+                if self.on_project_update and self.project_manager:
+                     self.on_project_update(self.project_manager.current_project)
 
                 await self.stop_event.wait()
 

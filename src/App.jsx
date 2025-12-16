@@ -60,6 +60,7 @@ function App() {
     const [devices, setDevices] = useState([]);
     const [selectedDeviceId, setSelectedDeviceId] = useState('');
     const [showSettings, setShowSettings] = useState(false);
+    const [currentProject, setCurrentProject] = useState('default');
 
     // Modular Mode State
     const [isModularMode, setIsModularMode] = useState(false);
@@ -361,6 +362,12 @@ function App() {
                 }
                 return d;
             }));
+        });
+
+        socket.on('project_update', (data) => {
+            console.log("Project Update:", data.project);
+            setCurrentProject(data.project);
+            addMessage('System', `Switched to project: ${data.project}`);
         });
 
 
@@ -1146,6 +1153,11 @@ function App() {
                 </div>
 
                 {/* Video Feed Overlay */}
+                {/* Floating Project Label */}
+                <div className="absolute top-[70px] left-1/2 -translate-x-1/2 text-cyan-500 text-xs font-mono tracking-widest pointer-events-none z-50 bg-black/50 px-2 py-1 rounded backdrop-blur-sm border border-cyan-500/20">
+                    PROJECT: {currentProject?.toUpperCase()}
+                </div>
+
                 <div
                     id="video"
                     className={`absolute transition-all duration-200 
