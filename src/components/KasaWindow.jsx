@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, RefreshCw, Power, Sun } from 'lucide-react';
+import { X, RefreshCw, Power, Sun, Palette } from 'lucide-react';
 
 const KasaWindow = ({
     socket,
@@ -56,6 +56,14 @@ const KasaWindow = ({
             ip: ip,
             action: 'brightness',
             value: parseInt(val)
+        });
+    };
+
+    const handleColor = (ip, hue) => {
+        socket.emit('control_kasa', {
+            ip: ip,
+            action: 'color',
+            value: { h: parseInt(hue), s: 100, v: 100 }
         });
     };
 
@@ -148,6 +156,24 @@ const KasaWindow = ({
                                     defaultValue={dev.brightness || 100}
                                     onChange={(e) => handleBrightness(dev.ip, e.target.value)}
                                     className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan-400"
+                                />
+                            </div>
+                        )}
+
+                        {/* Color Control */}
+                        {dev.has_color && dev.is_on && (
+                            <div className="flex items-center gap-2 mt-2">
+                                <Palette size={14} className="text-purple-500/70" />
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="360"
+                                    defaultValue={(dev.hsv && dev.hsv.h) || 0}
+                                    onChange={(e) => handleColor(dev.ip, e.target.value)}
+                                    className="w-full h-1 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white"
+                                    style={{
+                                        background: 'linear-gradient(to right, red, yellow, lime, cyan, blue, magenta, red)'
+                                    }}
                                 />
                             </div>
                         )}
