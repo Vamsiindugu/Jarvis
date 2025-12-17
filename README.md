@@ -110,7 +110,6 @@ The main backend needs to know **exactly** where the CAD environment's python ex
 
 ### 3. Frontend Setup
 ```bash
-```bash
 npm install
 ```
 
@@ -137,6 +136,21 @@ The system creates a `settings.json` file on first run. You can modify this to c
 | `tool_permissions.write_file` | `bool` | **Critical**: Requires confirmation before the AI writes code/files to disk. |
 
 ---
+
+### 5. 🔑 Gemini API Key Setup
+ADA uses Google's Gemini API for voice and intelligence. You need a free API key.
+
+1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey).
+2. Sign in with your Google account.
+3. Click **"Create API Key"** and copy the generated key.
+4. Create a file named `.env` in the `ada_v2` folder (same level as `README.md`).
+5. Add this line to the file:
+   ```
+   GEMINI_API_KEY=your_api_key_here
+   ```
+6. Replace `your_api_key_here` with the key you copied.
+
+> **Note**: Keep this key private! Never commit your `.env` file to Git.
 
 ---
 
@@ -183,7 +197,7 @@ npm run dev
 
 ## ▶️ Commands & Tools Reference
 
-### �️ Voice Commands
+### 🗣️ Voice Commands
 - "Switch project to [Name]"
 - "Create a new project called [Name]"
 - "Turn on the [Room] light"
@@ -198,4 +212,60 @@ npm run dev
 ### 🌐 Web Agent
 - **Prompt**: "Go to Amazon and find a USB-C cable under $10."
 - **Note**: The agent will auto-scroll, click, and type. Do not interfere with the browser window while it runs.
+
+---
+
+## ❓ Troubleshooting FAQ
+
+### `dlib` fails to build / install
+**Symptoms**: Errors mentioning `CMake`, `boost`, or C++ compilation during `pip install dlib`.
+
+**Solution**:
+- **Mac**: Ensure you ran `brew install cmake boost boost-python3`.
+- **Windows**: Install Visual Studio 2022 with "Desktop development with C++" workload, then restart your terminal.
+- Try installing `dlib` separately first: `pip install dlib` before running `pip install -r requirements.txt`.
+
+---
+
+### Camera not working / Permission denied (Mac)
+**Symptoms**: Error about camera access, or video feed shows black.
+
+**Solution**:
+1. Go to **System Preferences > Privacy & Security > Camera**.
+2. Ensure your terminal app (e.g., Terminal, iTerm, VS Code) has camera access enabled.
+3. Restart the app after granting permission.
+
+---
+
+### `GEMINI_API_KEY` not found / Authentication Error
+**Symptoms**: Backend crashes on startup with "API key not found".
+
+**Solution**:
+1. Make sure your `.env` file is in the root `ada_v2` folder (not inside `backend/`).
+2. Verify the format is exactly: `GEMINI_API_KEY=your_key` (no quotes, no spaces).
+3. Restart the backend after editing the file.
+
+---
+
+### CAD generation fails / build123d errors
+**Symptoms**: "ModuleNotFoundError: build123d" or numpy version conflicts.
+
+**Solution**:
+1. Ensure you created the **second** environment: `conda create -n ada_cad_env python=3.11`.
+2. Activate it (`conda activate ada_cad_env`) and run `pip install build123d numpy`.
+3. Update the path in `backend/cad_agent.py` to point to this environment's Python (see [CAD Agent Path](#-critical-configure-cad-agent-path)).
+
+---
+
+### WebSocket connection errors (1011)
+**Symptoms**: `websockets.exceptions.ConnectionClosedError: 1011 (internal error)`.
+
+**Solution**:
+This is a server-side issue from the Gemini API. Simply reconnect by clicking the connect button or saying "Hello Ada" again. If it persists, check your internet connection or try again later.
+
+---
+
+## 📸 What It Looks Like
+
+*Coming soon! Screenshots and demo videos will be added here.*
 
