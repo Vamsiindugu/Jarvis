@@ -1,123 +1,160 @@
 # A.D.A V2 - Advanced Design Assistant
 
-ADA V2 is a sophisticated AI assistant designed for multimodal interaction, capable of voice conversations, vision processing (Face Auth), 3D CAD generation, web automation, and smart home control.
+ADA V2 is a sophisticated AI assistant designed for multimodal interaction, capable of voice conversations, vision processing (Face Auth), 3D CAD generation, web automation, and smart home control. It runs on a dual-environment architecture to handle complex dependency requirements between modern vision libraries and parametric CAD tools.
 
-## 🚀 Features
+## 🚀 System Architecture & Capabilities
 
-- **🗣️ Voice Interaction**: Real-time voice-to-voice conversation using Google's Gemini 2.5 Flash Native Audio.
-- **👁️ Face Authentication**: Secure access control using facial recognition (Local `face_recognition` + `opencv`).
-- **🛠️ 3D CAD Generation**: Generates 3D printable models (STL) using `build123d` and a specialized Gemini "Thinking" model.
-- **🌐 Web Agent**: Autonomous web browsing and task execution using `Playwright` and Gemini Computer Use model.
-- **💡 Smart Home Control**: Controls TP-Link Kasa devices (Lights, Plugs) on your local network.
-- **📂 Project Management**: Organizes your work into projects, maintaining context and files.
+### 1. Communication (The Brain)
+**Native Audio Streaming (Low Latency)**
+- **Direct WebSocket**: Uses `google.genai aio.live.connect` in `backend/ada.py` to establish a persistent WebSocket link.
+- **Bypass Legacy Pipelines**: Audio PCM chunks are sent directly to **Gemini 2.5 Flash Native Audio**, bypassing traditional Transcribe-Think-TTS pipelines for ultra-low latency.
+- **Interruption Handling**: The `receive_audio` loop actively manages the stream. If you speak while Ada is talking, the model halts generation instantly, mimicking natural conversation flow.
 
-## 📋 Prerequisites
+**Personality Injection**
+- System instruction in `backend/ada.py` enforces a specific persona: "Witty," "Charming," addresses you as "Sir," and uses the "Kore" voice preset.
 
-- **Node.js** (v18+)
-- **Python** (3.10+)
-- **Anaconda / Miniconda** (Recommended for environment management)
-- **Google Gemini API Key**
+**Resilient Connection Logic**
+- **Auto-Reconnect with Context**: If the connection drops, the system fetches the recent `chat_history.jsonl` via `ProjectManager` and feeds it back to the model so it "remembers" the context.
 
-## 🛠️ Installation & Setup
+**Dual-Stream Visualization**
+- **Input**: `TopAudioBar.jsx` uses the browser’s `AudioContext` to visualize raw microphone input.
+- **Output**: `Visualizer.jsx` reacts to the AI’s audio frequency data with a breathing/pulsing circle effect that scales based on amplitude.
 
-This project requires **two separate Python environments** to resolve dependency conflicts between `face_recognition` (requires older numpy) and `build123d` (requires newer numpy).
+### 2. Hand Tracking & Interface (The Body)
+**"Minority Report" Gesture Control**
+- **MediaPipe Integration**: `App.jsx` initializes `HandLandmarker` on the CPU to avoid GPU context conflicts.
+- **Coordinate Mapping**: Maps the Index Finger Tip (Landmark 8) to screen coordinates with a custom sensitivity factor (default 2.0x), allowing you to reach corners without exaggerated movement.
+- **Physics-Based Smoothing**: Implements a Linear Interpolation (Lerp) factor of 0.2 to eliminate jitter and make the cursor feel "heavy" and precise.
+- **Magnetic Button Snapping**: The cursor physically "snaps" to the center of interactive elements (buttons) when within 50px (`SNAP_THRESHOLD`), applying a glowing CSS effect.
 
-### 1. Main Backend Environment (`ada_v2_1`)
+**Modular Spatial UI (The "Fist" Gesture)**
+- **Fist Detection**: Checks if finger tips are closer to the wrist than their respective knuckles.
+- **Spatial Grabbing**: If a fist is detected while hovering over a window (CAD, Browser, Chat), it locks onto that element allow you to physically grab and rearrange UI components in 3D space.
 
-This environment runs the main server, voice, and vision.
+### 3. CAD Generation (The Engineer)
+**Parametric Design with "Thinking" Model**
+- **Model Switching**: `backend/cad_agent.py` switches to **Gemini 3 Pro Preview** specifically for this task to utilize "Thinking" (Chain of Thought) capabilities.
+- **Parametric Scripting**: Generates Python scripts using the `build123d` library ensuring mathematically accurate models.
 
+**Isolated Execution Environment**
+- Code is executed locally using a specific Conda environment (`/opt/anaconda3/envs/ada_cad_env`) to manage dependencies (like numpy versions) separately from the main backend.
+
+**The "Reflexion" Loop (Self-Healing)**
+- If the generated Python script crashes, the agent captures the `stderr` (error), feeds it back to Gemini with the prompt "Please fix the code...", and retries automatically up to 3 times.
+
+**Real-Time "Thinking" Stream**
+- The backend streams the model's internal "Thought" process to the frontend (`CadWindow.jsx`), displaying a Matrix-style scrolling log of how the AI is solving the geometry problem.
+
+### 4. Browser Control (The Knowledge)
+**Computer Use Agent**
+- Uses **Gemini 2.5 Computer Use Preview** in `backend/web_agent.py`.
+- **Full Action Suite**: Supports `click_at`, `type_text_at` (with auto-clearing via Ctrl+A), `scroll`, and `drag_and_drop`.
+- **Live Feedback**: Streams screenshots via Playwright after every action to `BrowserWindow.jsx` along with a scrolling action log.
+- **Safety**: Automatically detects and acknowledges "safety_decision" flags from the API to maintain agent flow.
+
+### 5. Smart Home Control (The Physical World)
+**Cloud-Free Discovery**
+- Uses `python-kasa` in `backend/kasa_agent.py` to discover devices on the local LAN via broadcast (No Cloud/Internet required).
+- **Intelligent Resolution**: Resolves targets by Alias ("Bedroom Light") or IP.
+- **Natural Language Color Mapping**: Maps names like "cyan", "warm", "pink" to specific HSV tuples for complex mood lighting.
+
+### 6. Project & File Management (The Organizer)
+**Dynamic Project System**
+- **Auto-Creation**: Automatically creates detailed project folders in `projects/` when work begins in the temp buffer.
+- **Context Injection**: When switching projects, the manager reads all compatible text files (.py, .js, .md) and injects them into the AI's context window.
+- **Chat Persistence**: Every message is logged to `chat_history.jsonl` within the specific project folder.
+
+### 7. Security & Protocol (The Gatekeeper)
+**Face Authentication Lock**
+- **Local Vision**: `backend/authenticator.py` runs `face_recognition` and `dlib` in a separate thread.
+- **Hard Lock**: The audio loop checks `authenticator.authenticated`; if false, voice commands are completely ignored.
+- **Human-in-the-Loop**: Sensitive tools (`write_file`, `run_web_agent`) trigger a `ConfirmationPopup.jsx` on the frontend that creates a blocking wait on the backend until approved.
+
+### 8. Long Term Memory (The Soul)
+- **Session Serialization**: Conversation logs are saved to `long_term_memory/` with timestamps.
+- **Memory Injection**: The `upload_memory` event allows uploading previous logs, treating them as "System Notifications" to restore the AI's memory of past events/rules.
+
+---
+
+## 🛠️ Installation Requirements
+
+This project has **strict** requirements due to the combination of legacy vision libraries (`dlib` for face rec) and modern CAD tools (`build123d`).
+
+### 1. System Dependencies (C++ Build Tools)
+Required for compiling `dlib` and `face_recognition`.
+
+**MacOS:**
 ```bash
-# Create the environment
+brew install cmake
+brew install boost
+brew install boost-python3
+```
+
+**Windows:**
+- Install Visual Studio Community 2022 with "Desktop development with C++".
+- Install CMake and add to PATH.
+
+### 2. Python Environments (Dual Setup)
+You must create **TWO** separate environments.
+
+**Env A: Main Backend (`ada_v2_1`)**
+Runs the Server, Voice, Vision, and Web Agent.
+```bash
 conda create -n ada_v2_1 python=3.10
 conda activate ada_v2_1
 
-# Install dependencies
+# 1. Install dlib first (verify cmake is installed)
+pip install dlib
+
+# 2. Install main requirements
 pip install -r requirements.txt
 
-# Install Playwright browsers
+# 3. Install Playwright browsers
 playwright install chromium
 ```
 
-### 2. CAD Generation Environment (`ada_cad_env`)
-
-This environment is used purely for generating 3D models in the background.
-
+**Env B: CAD Generation (`ada_cad_env`)**
+Runs isolated CAD generation scripts.
 ```bash
-# Create the environment
 conda create -n ada_cad_env python=3.11
 conda activate ada_cad_env
 
-# Install CAD dependencies
+# Install build123d and numpy (requires newer numpy than Env A)
 pip install build123d numpy
 ```
-*Note: The backend automatically calls this environment using `/opt/anaconda3/envs/ada_cad_env/bin/python`. Ensure this path matches your system or update `backend/cad_agent.py`.*
+*Note: Ensure `backend/cad_agent.py` points to this environment's python executable.*
 
 ### 3. Frontend Setup
-
 ```bash
-# Install Node dependencies
 npm install
 ```
 
-### 4. Environment Variables
+## ⚙️ Configuration (`settings.json`)
 
-Create a `.env` file in the root directory:
+The system creates a `settings.json` file on first run. You can modify this to change behavior:
 
-```env
-GEMINI_API_KEY=your_api_key_here
-```
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `face_auth_enabled` | `bool` | If `true`, blocks all AI interaction until your face is recognized via the camera. |
+| `tool_permissions` | `obj` | Controls manual approval for specific tools. |
+| `tool_permissions.generate_cad` | `bool` | If `true`, requires you to click "Confirm" on the UI before generating CAD. |
+| `tool_permissions.run_web_agent` | `bool` | If `true`, requires confirmation before opening the browser agent. |
+| `tool_permissions.write_file` | `bool` | **Critical**: Requires confirmation before the AI writes code/files to disk. |
 
-## ⚙️ Usage Configuration
+## ▶️ Commands & Tools Reference
 
-Settings are stored in `settings.json` (auto-created on first run).
+### 🗣️ Voice Commands
+- "Switch project to [Name]"
+- "Create a new project called [Name]"
+- "Turn on the [Room] light"
+- "Make the light [Color]"
+- "Pause audio" / "Stop audio"
 
-- **`face_auth_enabled`**: `true/false` - Enable facial recognition for login.
-- **`tool_permissions`**: Toggle specific tools (e.g., `generate_cad`, `run_web_agent`) to require user confirmation or run automatically.
-
-## ▶️ Running the Application
-
-### Start the Backend
-```bash
-conda activate ada_v2_1
-python backend/server.py
-```
-*Server runs on `http://localhost:8000`*
-
-### Start the Frontend
-```bash
-npm run dev
-```
-*Application runs on `http://localhost:5173` (or via Electron if configured)*
-
-## 📖 Feature Guide
-
-### 🗣️ Voice Chat
-Simply speak to ADA. The blue visualizer ring indicates listening status. You can ask her to "Switch project to X" or "Turn on the lights".
-
-### 🧊 3D CAD Generation
-Ask ADA to "Create a 3D model of a [object]".
-- She will think, generate a Python script, and execute it in the isolated CAD environment.
-- The result is displayed in the 3D Viewer window.
-- You can iterate by saying "Make it taller" or "Add a hole in the center".
+### 🧊 3D CAD
+- **Prompt**: "Create a 3D model of a hex bolt."
+- **Iterate**: "Make the head thinner." (Requires previous context)
+- **Files**: Saves to `projects/[ProjectName]/output.stl`.
 
 ### 🌐 Web Agent
-Ask ADA to "Go to [website] and [action]".
-- **Example**: "Go to YouTube and search for relaxed music."
-- A browser window (headless by default) will open, and ADA will perform the actions, reporting back progress.
-
-### 🏠 Smart Home (Kasa)
-Ensure your TP-Link Kasa devices are on the same Wi-Fi.
-- **Commands**: "Turn on the office light", "Set the bedroom light to blue", "List my devices".
-- **Color Control**: Supports common names (Red, Blue, Cool White) or "Warm".
-
-### 🔐 Face Authentication
-To enable:
-1. Ensure `reference.jpg` exists in `backend/` (a photo of your face).
-2. Set `face_auth_enabled: true` in `settings.json` or via the UI settings.
-3. On startup, ADA will verify your identity before enabling audio features.
-
-## 📂 Troubleshooting
-
-- **CAD Generation Fails**: Ensure `ada_cad_env` exists and `backend/cad_agent.py` points to the correct python executable path for that env.
-- **Audio Issues**: Check microphone permissions on macOS. Standard `PyAudio` device selection logic is used.
-- **Web Agent Timeouts**: Complex pages may time out. The agent is designed for general navigation and simple tasks.
+- **Prompt**: "Go to Amazon and find a USB-C cable under $10."
+- **Note**: The agent will auto-scroll, click, and type. Do not interfere with the browser window while it runs.
