@@ -746,11 +746,11 @@ class AudioLoop:
                                     if success:
                                         if self.on_project_update:
                                             self.on_project_update(name)
-                                        # Gather project context and send to AI
+                                        # Gather project context and send to AI (silently, no response expected)
                                         context = self.project_manager.get_project_context()
                                         print(f"[ADA DEBUG] [PROJECT] Sending project context to AI ({len(context)} chars)")
                                         try:
-                                            await self.session.send(input=f"System Notification: {msg}\n\n{context}", end_of_turn=True)
+                                            await self.session.send(input=f"System Notification: {msg}\n\n{context}", end_of_turn=False)
                                         except Exception as e:
                                             print(f"[ADA DEBUG] [ERR] Failed to send project context: {e}")
                                     function_response = types.FunctionResponse(

@@ -803,11 +803,11 @@ async def control_kasa(sid, data):
             val = data.get('value')
             success = await kasa_agent.set_brightness(ip, val)
         elif action == "color":
-            # value is {h, s, v}
+            # value is {h, s, v} - convert to tuple for set_color
             h = data.get('value', {}).get('h', 0)
-            s = data.get('value', {}).get('s', 0)
+            s = data.get('value', {}).get('s', 100)
             v = data.get('value', {}).get('v', 100)
-            success = await kasa_agent.set_hsv(ip, h, s, v)
+            success = await kasa_agent.set_color(ip, (h, s, v))
         
         if success:
             await sio.emit('kasa_update', {

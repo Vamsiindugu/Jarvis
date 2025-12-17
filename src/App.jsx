@@ -65,6 +65,7 @@ function App() {
     const [slicingStatus, setSlicingStatus] = useState({ active: false, percent: 0, message: '' });
     const [activePrintStatus, setActivePrintStatus] = useState(null); // {printer, progress_percent, time_elapsed, state}
     const [printerCount, setPrinterCount] = useState(0); // Count of connected printers
+    const [currentTime, setCurrentTime] = useState(new Date()); // Live clock
 
 
     // RESTORED STATE
@@ -162,6 +163,14 @@ function App() {
         isCameraFlippedRef.current = isCameraFlipped;
         console.log("[Ref Sync] Camera flipped ref updated to:", isCameraFlipped);
     }, [isModularMode, elementPositions, isHandTrackingEnabled, cursorSensitivity, isCameraFlipped]);
+
+    // Live Clock Update
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setCurrentTime(new Date());
+        }, 1000);
+        return () => clearInterval(timer);
+    }, []);
 
     // Centering Logic (Startup & Resize)
     useEffect(() => {
@@ -277,8 +286,9 @@ function App() {
         if (isConnected && isAuthenticated && socketConnected && devices.length > 0 && !hasAutoConnectedRef.current) {
             hasAutoConnectedRef.current = true;
 
-            // Trigger Kasa Discovery
+            // Trigger Kasa and Printer Discovery
             socket.emit('discover_kasa');
+            socket.emit('discover_printers');
 
             // Connect to model with small delay for socket stability
             const timer = setTimeout(() => {
@@ -1322,6 +1332,11 @@ function App() {
                 </div>
 
                 <div className="flex items-center gap-2 pr-2" style={{ WebkitAppRegion: 'no-drag' }}>
+                    {/* Live Clock */}
+                    <div className="flex items-center gap-1.5 text-[11px] text-cyan-300/70 font-mono px-2">
+                        <Clock size={12} className="text-cyan-500/50" />
+                        <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
                     <button onClick={handleMinimize} className="p-1 hover:bg-cyan-900/50 rounded text-cyan-500 transition-colors">
                         <Minus size={18} />
                     </button>
