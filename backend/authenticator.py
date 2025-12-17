@@ -1,12 +1,18 @@
-import face_recognition
+import mediapipe as mp
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision
 import cv2
 import asyncio
 import os
 import base64
-import PIL.Image
-import io
+import numpy as np
+import urllib.request
 
 class FaceAuthenticator:
+    # MediaPipe Face Landmarker model URL
+    MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+    MODEL_PATH = os.path.join(os.path.dirname(__file__), "face_landmarker.task")
+    
     def __init__(self, reference_image_path="reference.jpg", on_status_change=None, on_frame=None):
         """
         :param reference_image_path: Path to the user's reference photo.
@@ -19,9 +25,87 @@ class FaceAuthenticator:
         
         self.authenticated = False
         self.running = False
-        self.reference_encoding = None
+        self.reference_landmarks = None
+        self.landmarker = None
 
+        self._ensure_model()
+        self._init_landmarker()
         self._load_reference()
+
+    def _ensure_model(self):
+        """Download the MediaPipe Face Landmarker model if not present."""
+        if not os.path.exists(self.MODEL_PATH):
+            print(f"[AUTH] Downloading Face Landmarker model...")
+            try:
+                urllib.request.urlretrieve(self.MODEL_URL, self.MODEL_PATH)
+                print(f"[AUTH] [OK] Model downloaded to {self.MODEL_PATH}")
+            except Exception as e:
+                print(f"[AUTH] [ERR] Failed to download model: {e}")
+
+    def _init_landmarker(self):
+        """Initialize the MediaPipe Face Landmarker."""
+        if not os.path.exists(self.MODEL_PATH):
+            print("[AUTH] [ERR] Face Landmarker model not found. Cannot initialize.")
+            return
+        
+        try:
+            base_options = mp_python.BaseOptions(model_asset_path=self.MODEL_PATH)
+            options = vision.FaceLandmarkerOptions(
+                base_options=base_options,
+                output_face_blendshapes=False,
+                output_facial_transformation_matrixes=False,
+                num_faces=1
+            )
+            self.landmarker = vision.FaceLandmarker.create_from_options(options)
+            print("[AUTH] [OK] Face Landmarker initialized.")
+        except Exception as e:
+            print(f"[AUTH] [ERR] Failed to initialize Face Landmarker: {e}")
+
+    def _extract_landmarks(self, image_rgb):
+        """
+        Extract normalized face landmarks from an RGB image.
+        Returns a flattened numpy array of (x, y, z) coordinates, or None if no face found.
+        """
+        if self.landmarker is None:
+            return None
+        
+        try:
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
+            result = self.landmarker.detect(mp_image)
+            
+            if result.face_landmarks and len(result.face_landmarks) > 0:
+                landmarks = result.face_landmarks[0]
+                # Convert to numpy array of (x, y, z) coordinates
+                coords = np.array([[lm.x, lm.y, lm.z] for lm in landmarks], dtype=np.float32)
+                return coords.flatten()
+            return None
+        except Exception as e:
+            print(f"[AUTH] [ERR] Landmark extraction failed: {e}")
+            return None
+
+    def _compare_landmarks(self, landmarks1, landmarks2, threshold=0.15):
+        """
+        Compare two landmark vectors using cosine similarity.
+        Returns True if similarity is above (1 - threshold).
+        """
+        if landmarks1 is None or landmarks2 is None:
+            return False
+        
+        # Normalize vectors
+        norm1 = np.linalg.norm(landmarks1)
+        norm2 = np.linalg.norm(landmarks2)
+        
+        if norm1 == 0 or norm2 == 0:
+            return False
+        
+        # Cosine similarity
+        similarity = np.dot(landmarks1, landmarks2) / (norm1 * norm2)
+        
+        # Threshold check (similarity should be close to 1 for a match)
+        is_match = similarity > (1 - threshold)
+        if is_match:
+            print(f"[AUTH] Face match! Similarity: {similarity:.4f}")
+        return is_match
 
     def _load_reference(self):
         if not os.path.exists(self.reference_image_path):
@@ -30,23 +114,18 @@ class FaceAuthenticator:
 
         try:
             print("[AUTH] Loading reference image...")
-            # Workaround for numpy 2.x / dlib compatibility issue
-            # face_recognition.load_image_file uses PIL, which dlib now rejects due to array layout checks
-            import numpy as np
             img_bgr = cv2.imread(self.reference_image_path)
             if img_bgr is None:
                 print(f"[AUTH] [ERR] Failed to read image file: {self.reference_image_path}")
                 return
             
-            # Convert to RGB and enforce contiguous uint8 array
-            image = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-            image = np.ascontiguousarray(image, dtype=np.uint8)
+            # Convert to RGB
+            image_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
             
-            encodings = face_recognition.face_encodings(image)
+            self.reference_landmarks = self._extract_landmarks(image_rgb)
             
-            if len(encodings) > 0:
-                self.reference_encoding = encodings[0]
-                print("[AUTH] [OK] Reference face encoded successfully.")
+            if self.reference_landmarks is not None:
+                print("[AUTH] [OK] Reference face landmarks extracted successfully.")
             else:
                 print("[AUTH] [ERR] No face found in reference image.")
         except Exception as e:
@@ -59,9 +138,8 @@ class FaceAuthenticator:
                 await self.on_status_change(True)
             return
 
-        if self.reference_encoding is None:
-             print("[AUTH] [ERR] Cannot start auth loop: No reference encoding.")
-             # Optionally trigger a failure state here
+        if self.reference_landmarks is None:
+             print("[AUTH] [ERR] Cannot start auth loop: No reference landmarks.")
              return
 
         self.running = True
@@ -70,7 +148,7 @@ class FaceAuthenticator:
         # Capture the current (main) event loop
         loop = asyncio.get_running_loop()
         
-        # Use a separate thread for blocking camera/CV operations to avoid blocking asyncio loop
+        # Use a separate thread for blocking camera/CV operations
         await asyncio.to_thread(self._run_cv_loop, loop)
 
         print("[AUTH] Authentication loop finished.")
@@ -80,7 +158,6 @@ class FaceAuthenticator:
         self.running = False
 
     def _run_cv_loop(self, loop):
-        # Helper to try opening and reading a frame
         def try_open_camera(index):
             print(f"[AUTH] Trying to open camera with index {index}...")
             cap = cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION)
@@ -88,8 +165,6 @@ class FaceAuthenticator:
                 print(f"[AUTH] [ERR] Could not open video device {index}.")
                 return None
             
-            # Read one frame to verify
-            # Some cameras open but fail to read if permissions are missing or device is busy
             ret, frame = cap.read()
             if not ret:
                  print(f"[AUTH] [ERR] Opened device {index} but failed to read first frame.")
@@ -121,31 +196,23 @@ class FaceAuthenticator:
             # Convert BGR to RGB
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
-            # Optimization: Process every other frame
+            # Process every other frame for performance
             if process_this_frame:
-                face_locations = face_recognition.face_locations(rgb_frame)
-                face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
-
-                for face_encoding in face_encodings:
-                    # See if the face is a match for the known face(s)
-                    matches = face_recognition.compare_faces([self.reference_encoding], face_encoding, tolerance=0.6)
-                    
-                    if True in matches:
-                        self.authenticated = True
-                        print("[AUTH] [OPEN] FACE RECOGNIZED! Access Granted.")
-                        if self.on_status_change:
-                            # Run async callback safely from thread using the passed loop
-                            asyncio.run_coroutine_threadsafe(self.on_status_change(True), loop)
-                        self.running = False # Stop loop
-                        break # Exit for loop
+                current_landmarks = self._extract_landmarks(rgb_frame)
+                
+                if self._compare_landmarks(self.reference_landmarks, current_landmarks):
+                    self.authenticated = True
+                    print("[AUTH] [OPEN] FACE RECOGNIZED! Access Granted.")
+                    if self.on_status_change:
+                        asyncio.run_coroutine_threadsafe(self.on_status_change(True), loop)
+                    self.running = False
+                    break
 
             process_this_frame = not process_this_frame
 
             # Send frame to frontend if callback exists
             if self.on_frame:
-                 # Resize for performance sending over socket
                 small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
-                # Convert to base64
                 _, buffer = cv2.imencode('.jpg', small_frame)
                 b64_str = base64.b64encode(buffer).decode('utf-8')
                 

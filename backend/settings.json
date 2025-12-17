@@ -1,5 +1,5 @@
 {
-    "face_auth_enabled": false,
+    "face_auth_enabled": true,
     "tool_permissions": {
         "generate_cad": true,
         "run_web_agent": true,

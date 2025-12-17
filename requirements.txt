@@ -15,4 +15,5 @@ playwright
 python-kasa
 # Utilities
 python-dotenv
-numpy<2
+# Face & Hand tracking
+mediapipe

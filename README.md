@@ -19,7 +19,7 @@ ADA V2 is a sophisticated AI assistant designed for multimodal interaction, runn
 | **🗣️ Low-Latency Voice** | Real-time conversation with interrupt handling | Gemini 2.5 Native Audio |
 | **🧊 Parametric CAD** | Editable 3D model generation from voice prompts | `build123d` → STL |
 | **🖐️ Minority Report UI** | Gesture-controlled window manipulation | MediaPipe Hand Tracking |
-| **👁️ Face Authentication** | Secure local biometric login | `face_recognition` + `dlib` |
+| **👁️ Face Authentication** | Secure local biometric login | MediaPipe Face Landmarker |
 | **🌐 Web Agent** | Autonomous browser automation | Playwright + Chromium |
 | **🏠 Smart Home** | Voice control for TP-Link Kasa devices | `python-kasa` |
 | **📁 Project Memory** | Persistent context across sessions | File-based JSON storage |
@@ -53,15 +53,10 @@ graph TB
         SERVER[server.py<br/>Socket.IO Server]
         ADA[ada.py<br/>Gemini Live API]
         WEB[web_agent.py<br/>Playwright Browser]
-        CAD[cad_agent.py<br/>CAD Orchestrator]
+        CAD[cad_agent.py<br/>CAD + build123d]
         KASA[kasa_agent.py<br/>Smart Home]
-        AUTH[authenticator.py<br/>Face Recognition]
+        AUTH[authenticator.py<br/>MediaPipe Face Auth]
         PM[project_manager.py<br/>Project Context]
-    end
-    
-    subgraph CAD_ENV ["CAD Environment (Python 3.11)"]
-        BUILD123D[build123d<br/>Solid CAD Generation]
-        STL[STL Export]
     end
     
     UI --> SOCKET_C
@@ -72,9 +67,7 @@ graph TB
     ADA --> KASA
     SERVER --> AUTH
     SERVER --> PM
-    CAD -->|subprocess| BUILD123D
-    BUILD123D --> STL
-    STL -->|file| THREE
+    CAD -->|STL file| THREE
 ```
 
 ---
@@ -88,27 +81,20 @@ graph TB
 # 1. Clone and enter
 git clone https://github.com/nazirlouis/ada_v2.git && cd ada_v2
 
-# 2. Create main Python environment (Python 3.10)
-conda create -n ada_v2_1 python=3.10 -y && conda activate ada_v2_1
-brew install cmake boost boost-python3 portaudio  # macOS only
-pip install dlib && pip install -r requirements.txt
+# 2. Create Python environment (Python 3.11)
+conda create -n ada_v2 python=3.11 -y && conda activate ada_v2
+brew install portaudio  # macOS only (for PyAudio)
+pip install -r requirements.txt
 playwright install chromium
 
-# 3. Create CAD environment (Python 3.11)
-conda create -n ada_cad_env python=3.11 -y && conda activate ada_cad_env
-pip install build123d numpy
-
-# 4. Configure CAD agent path
-# Edit backend/cad_agent.py line ~147 with: which python (from ada_cad_env)
-
-# 5. Setup frontend
+# 3. Setup frontend
 npm install
 
-# 6. Create .env file
+# 4. Create .env file
 echo "GEMINI_API_KEY=your_key_here" > .env
 
-# 7. Run!
-conda activate ada_v2_1 && npm run dev
+# 5. Run!
+conda activate ada_v2 && npm run dev
 ```
 
 </details>
@@ -149,66 +135,32 @@ If you have never coded before, follow these steps first!
 ---
 
 ### ⚠️ Technical Prerequisites
-Once you have the basics above, continue here. This project has **strict** requirements due to the combination of legacy vision libraries (`dlib` for face rec) and modern CAD tools (`build123d`).
+Once you have the basics above, continue here.
 
-### 1. System Dependencies (C++ Build Tools)
-Required for compiling `dlib` and `face_recognition`.
+### 1. System Dependencies
 
 **MacOS:**
 ```bash
-# Core build tools for face_recognition/dlib
-brew install cmake
-brew install boost
-brew install boost-python3
-
 # Audio Input/Output support (PyAudio)
 brew install portaudio
 ```
 
 **Windows:**
-- Install Visual Studio Community 2022 with "Desktop development with C++".
-- Install CMake and add to PATH.
+- No additional system dependencies required!
 
-### 2. Python Environments (Dual Setup)
-You must create **TWO** separate environments.
+### 2. Python Environment
+Create a single Python 3.11 environment:
 
-**Env A: Main Backend (`ada_v2_1`)**
-Runs the Server, Voice, Vision, and Web Agent.
 ```bash
-conda create -n ada_v2_1 python=3.10
-conda activate ada_v2_1
+conda create -n ada_v2 python=3.11
+conda activate ada_v2
 
-# 1. Install dlib first (verify cmake is installed)
-pip install dlib
-
-# 2. Install main requirements
+# Install all dependencies
 pip install -r requirements.txt
 
-# 3. Install Playwright browsers
+# Install Playwright browsers
 playwright install chromium
 ```
-
-**Env B: CAD Generation (`ada_cad_env`)**
-Runs isolated CAD generation scripts.
-```bash
-conda create -n ada_cad_env python=3.11
-conda activate ada_cad_env
-
-# Install build123d and numpy (requires newer numpy than Env A)
-pip install build123d numpy
-```
-
-### ⚠️ CRITICAL: Configure CAD Agent Path
-The main backend needs to know **exactly** where the CAD environment's python executable is located.
-
-1. Activate your CAD env: `conda activate ada_cad_env`
-2. Find the path: `which python` (or `where python` on Windows).
-   - Example Output: `/opt/anaconda3/envs/ada_cad_env/bin/python`
-3. Edit `backend/cad_agent.py` around line 147:
-   ```python
-   # UPDATE THIS PATH to match your system
-   cad_python_path = "/path/to/your/envs/ada_cad_env/bin/python"
-   ```
 
 ### 3. Frontend Setup
 Requires **Node.js 18+** and **npm**. Download from [nodejs.org](https://nodejs.org/) if not installed.
@@ -264,12 +216,12 @@ ADA uses Google's Gemini API for voice and intelligence. You need a free API key
 
 ## 🚀 Running ADA V2
 
-You have two options to run the app. Ensure your `ada_v2_1` environment is active!
+You have two options to run the app. Ensure your `ada_v2` environment is active!
 
 ### Option 1: The "Easy" Way (Single Terminal)
 The app is smart enough to start the backend for you.
 1. Open your terminal in the `ada_v2` folder.
-2. Activate your environment: `conda activate ada_v2_1`
+2. Activate your environment: `conda activate ada_v2`
 3. Run:
    ```bash
    npm run dev
@@ -281,7 +233,7 @@ Use this if you want to see the Python logs (recommended for debugging).
 
 **Terminal 1 (Backend):**
 ```bash
-conda activate ada_v2_1
+conda activate ada_v2
 python backend/server.py
 ```
 
@@ -325,16 +277,6 @@ npm run dev
 
 ## ❓ Troubleshooting FAQ
 
-### `dlib` fails to build / install
-**Symptoms**: Errors mentioning `CMake`, `boost`, or C++ compilation during `pip install dlib`.
-
-**Solution**:
-- **Mac**: Ensure you ran `brew install cmake boost boost-python3`.
-- **Windows**: Install Visual Studio 2022 with "Desktop development with C++" workload, then restart your terminal.
-- Try installing `dlib` separately first: `pip install dlib` before running `pip install -r requirements.txt`.
-
----
-
 ### Camera not working / Permission denied (Mac)
 **Symptoms**: Error about camera access, or video feed shows black.
 
@@ -352,16 +294,6 @@ npm run dev
 1. Make sure your `.env` file is in the root `ada_v2` folder (not inside `backend/`).
 2. Verify the format is exactly: `GEMINI_API_KEY=your_key` (no quotes, no spaces).
 3. Restart the backend after editing the file.
-
----
-
-### CAD generation fails / build123d errors
-**Symptoms**: "ModuleNotFoundError: build123d" or numpy version conflicts.
-
-**Solution**:
-1. Ensure you created the **second** environment: `conda create -n ada_cad_env python=3.11`.
-2. Activate it (`conda activate ada_cad_env`) and run `pip install build123d numpy`.
-3. Update the path in `backend/cad_agent.py` to point to this environment's Python (see [CAD Agent Path](#-critical-configure-cad-agent-path)).
 
 ---
 
@@ -389,7 +321,7 @@ ada_v2/
 │   ├── cad_agent.py            # CAD generation orchestrator
 │   ├── web_agent.py            # Playwright browser automation
 │   ├── kasa_agent.py           # TP-Link smart home control
-│   ├── authenticator.py        # Face recognition logic
+│   ├── authenticator.py        # MediaPipe face auth logic
 │   ├── project_manager.py      # Project context management
 │   ├── tools.py                # Tool definitions for Gemini
 │   └── reference.jpg           # Your face photo (add this!)
@@ -456,9 +388,8 @@ Contributions are welcome! Here's how:
 
 - **[Google Gemini](https://deepmind.google/technologies/gemini/)** — Native Audio API for real-time voice
 - **[build123d](https://github.com/gumyr/build123d)** — Modern parametric CAD library
-- **[MediaPipe](https://developers.google.com/mediapipe)** — Hand tracking and gesture recognition
+- **[MediaPipe](https://developers.google.com/mediapipe)** — Hand tracking, gesture recognition, and face authentication
 - **[Playwright](https://playwright.dev/)** — Reliable browser automation
-- **[face_recognition](https://github.com/ageitgey/face_recognition)** — Simple face recognition library
 
 ---
 
