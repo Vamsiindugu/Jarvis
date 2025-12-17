@@ -8,7 +8,7 @@
 
 > **A.D.A** = **A**dvanced **D**esign **A**ssistant
 
-ADA V2 is a sophisticated AI assistant designed for multimodal interaction, running on a dual-environment architecture to bridge the gap between real-time vision, voice, and parametric CAD engineering. It combines Google's Gemini 2.5 Native Audio with computer vision, gesture control, and 3D CAD generation in a unified Electron desktop application.
+ADA V2 is a sophisticated AI assistant designed for multimodal interaction, running on a unified Python 3.11 environment. It combines Google's Gemini 2.5 Native Audio with computer vision, gesture control, and 3D CAD generation in a unified Electron desktop application.
 
 ---
 
@@ -33,7 +33,7 @@ ADA's "Minority Report" interface uses your webcam to detect hand gestures:
 |---------|--------|
 | 🤏 **Pinch** (thumb + index) | "Select" and grab a UI window to drag it |
 | ✋ **Open Palm** | Release the window |
-| 👆 **Point Up** | Snap window to predetermined position |
+| ✊ **Close Fist** | Confirm action / click |
 
 > **Tip**: Enable the video feed window to see the hand tracking overlay.
 
@@ -50,11 +50,12 @@ graph TB
         SOCKET_C[Socket.IO Client]
     end
     
-    subgraph Backend ["Backend (Python + FastAPI)"]
+    subgraph Backend ["Backend (Python 3.11 + FastAPI)"]
         SERVER[server.py<br/>Socket.IO Server]
         ADA[ada.py<br/>Gemini Live API]
         WEB[web_agent.py<br/>Playwright Browser]
         CAD[cad_agent.py<br/>CAD + build123d]
+        PRINTER[printer_agent.py<br/>3D Printing + OrcaSlicer]
         KASA[kasa_agent.py<br/>Smart Home]
         AUTH[authenticator.py<br/>MediaPipe Face Auth]
         PM[project_manager.py<br/>Project Context]
@@ -68,7 +69,9 @@ graph TB
     ADA --> KASA
     SERVER --> AUTH
     SERVER --> PM
+    SERVER --> PRINTER
     CAD -->|STL file| THREE
+    CAD -->|STL file| PRINTER
 ```
 
 ---
@@ -347,6 +350,7 @@ ada_v2/
 │   ├── ada.py                  # Gemini Live API integration
 │   ├── server.py               # FastAPI + Socket.IO server
 │   ├── cad_agent.py            # CAD generation orchestrator
+│   ├── printer_agent.py        # 3D printer discovery & slicing
 │   ├── web_agent.py            # Playwright browser automation
 │   ├── kasa_agent.py           # TP-Link smart home control
 │   ├── authenticator.py        # MediaPipe face auth logic

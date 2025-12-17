@@ -20,3 +20,5 @@ aiohttp>=3.9.0
 python-dotenv
 # Face & Hand tracking
 mediapipe
+# CAD Generation
+build123d
