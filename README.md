@@ -1,15 +1,117 @@
 # A.D.A V2 - Advanced Design Assistant
 
-ADA V2 is a sophisticated AI assistant designed for multimodal interaction, running on a dual-environment architecture to bridge the gap between real-time vision, voice, and parametric CAD engineering.
+![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11-blue?logo=python)
+![React](https://img.shields.io/badge/React-18.2-61DAFB?logo=react)
+![Electron](https://img.shields.io/badge/Electron-28-47848F?logo=electron)
+![Gemini](https://img.shields.io/badge/Google%20Gemini-Native%20Audio-4285F4?logo=google)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-## 🌟 Capabilities at a Glance
+> **A.D.A** = **A**dvanced **D**esign **A**ssistant
 
-- **🗣️ Low-Latency Voice**: Real-time conversation with interruption handling using Gemini Native Audio.
-- **🧊 Parametric CAD**: Generates editable, mathematically accurate 3D models (STL) using `build123d`.
-- **🖐️ Minority Report UI**: Spatial gesture control for grabbing, moving, and snapping UI windows.
-- **👁️ Face Authentication**: Local, secure computer vision login system.
-- **🌐 Web Agent**: Autonomous browser automation for searching and data retrieval.
-- **🏠 Smart Home**: control over local TP-Link Kasa lights and plugs.
+ADA V2 is a sophisticated AI assistant designed for multimodal interaction, running on a dual-environment architecture to bridge the gap between real-time vision, voice, and parametric CAD engineering. It combines Google's Gemini 2.0 Native Audio with computer vision, gesture control, and 3D CAD generation in a unified Electron desktop application.
+
+---
+
+## �️ Architecture Overview
+
+```mermaid
+graph TB
+    subgraph Frontend ["Frontend (Electron + React)"]
+        UI[React UI]
+        THREE[Three.js 3D Viewer]
+        GESTURE[MediaPipe Gestures]
+        SOCKET_C[Socket.IO Client]
+    end
+    
+    subgraph Backend ["Backend (Python + FastAPI)"]
+        SERVER[server.py<br/>Socket.IO Server]
+        ADA[ada.py<br/>Gemini Live API]
+        WEB[web_agent.py<br/>Playwright Browser]
+        CAD[cad_agent.py<br/>CAD Orchestrator]
+        KASA[kasa_agent.py<br/>Smart Home]
+        AUTH[authenticator.py<br/>Face Recognition]
+        PM[project_manager.py<br/>Project Context]
+    end
+    
+    subgraph CAD_ENV ["CAD Environment (Python 3.11)"]
+        BUILD123D[build123d<br/>Solid CAD Generation]
+        STL[STL Export]
+    end
+    
+    UI --> SOCKET_C
+    SOCKET_C <--> SERVER
+    SERVER --> ADA
+    ADA --> WEB
+    ADA --> CAD
+    ADA --> KASA
+    SERVER --> AUTH
+    SERVER --> PM
+    CAD -->|subprocess| BUILD123D
+    BUILD123D --> STL
+    STL -->|file| THREE
+```
+
+---
+
+## �🌟 Capabilities at a Glance
+
+| Feature | Description | Technology |
+|---------|-------------|------------|
+| **🗣️ Low-Latency Voice** | Real-time conversation with interrupt handling | Gemini 2.5 Native Audio |
+| **🧊 Parametric CAD** | Editable 3D model generation from voice prompts | `build123d` → STL |
+| **🖐️ Minority Report UI** | Gesture-controlled window manipulation | MediaPipe Hand Tracking |
+| **👁️ Face Authentication** | Secure local biometric login | `face_recognition` + `dlib` |
+| **🌐 Web Agent** | Autonomous browser automation | Playwright + Chromium |
+| **🏠 Smart Home** | Voice control for TP-Link Kasa devices | `python-kasa` |
+| **📁 Project Memory** | Persistent context across sessions | File-based JSON storage |
+
+### 🖐️ Gesture Control Details
+
+ADA's "Minority Report" interface uses your webcam to detect hand gestures:
+
+| Gesture | Action |
+|---------|--------|
+| ✊ **Closed Fist** | "Grab" a UI window to drag it |
+| ✋ **Open Palm** | "Release" the window |
+| 👆 **Point Up** | Snap window to predetermined position |
+
+> **Tip**: Enable the video feed window to see the hand tracking overlay.
+
+---
+
+## ⚡ TL;DR Quick Start (Experienced Developers)
+
+<details>
+<summary>Click to expand quick setup commands</summary>
+
+```bash
+# 1. Clone and enter
+git clone https://github.com/nazirlouis/ada_v2.git && cd ada_v2
+
+# 2. Create main Python environment (Python 3.10)
+conda create -n ada_v2_1 python=3.10 -y && conda activate ada_v2_1
+brew install cmake boost boost-python3 portaudio  # macOS only
+pip install dlib && pip install -r requirements.txt
+playwright install chromium
+
+# 3. Create CAD environment (Python 3.11)
+conda create -n ada_cad_env python=3.11 -y && conda activate ada_cad_env
+pip install build123d numpy
+
+# 4. Configure CAD agent path
+# Edit backend/cad_agent.py line ~147 with: which python (from ada_cad_env)
+
+# 5. Setup frontend
+npm install
+
+# 6. Create .env file
+echo "GEMINI_API_KEY=your_key_here" > .env
+
+# 7. Run!
+conda activate ada_v2_1 && npm run dev
+```
+
+</details>
 
 ---
 
@@ -109,7 +211,13 @@ The main backend needs to know **exactly** where the CAD environment's python ex
    ```
 
 ### 3. Frontend Setup
+Requires **Node.js 18+** and **npm**. Download from [nodejs.org](https://nodejs.org/) if not installed.
+
 ```bash
+# Verify Node is installed
+node --version  # Should show v18.x or higher
+
+# Install frontend dependencies
 npm install
 ```
 
@@ -269,3 +377,98 @@ This is a server-side issue from the Gemini API. Simply reconnect by clicking th
 
 *Coming soon! Screenshots and demo videos will be added here.*
 
+---
+
+## 📂 Project Structure
+
+```
+ada_v2/
+├── backend/                    # Python server & AI logic
+│   ├── ada.py                  # Gemini Live API integration
+│   ├── server.py               # FastAPI + Socket.IO server
+│   ├── cad_agent.py            # CAD generation orchestrator
+│   ├── web_agent.py            # Playwright browser automation
+│   ├── kasa_agent.py           # TP-Link smart home control
+│   ├── authenticator.py        # Face recognition logic
+│   ├── project_manager.py      # Project context management
+│   ├── tools.py                # Tool definitions for Gemini
+│   └── reference.jpg           # Your face photo (add this!)
+├── src/                        # React frontend
+│   ├── App.jsx                 # Main application component
+│   ├── components/             # UI components (11 files)
+│   └── index.css               # Global styles
+├── electron/                   # Electron main process
+│   └── main.js                 # Window & IPC setup
+├── projects/                   # User project data (auto-created)
+├── .env                        # API keys (create this!)
+├── requirements.txt            # Python dependencies
+├── package.json                # Node.js dependencies
+└── README.md                   # You are here!
+```
+
+---
+
+## ⚠️ Known Limitations
+
+| Limitation | Details |
+|------------|---------|
+| **macOS Recommended** | Tested primarily on macOS 14+. Windows support is experimental. |
+| **Camera Required** | Face auth and gesture control need a working webcam. |
+| **Gemini API Quota** | Free tier has rate limits; heavy CAD iteration may hit limits. |
+| **Network Dependency** | Requires internet for Gemini API (no offline mode). |
+| **Single User** | Face auth recognizes one person (the `reference.jpg`). |
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Here's how:
+
+1. **Fork** the repository.
+2. **Create a branch**: `git checkout -b feature/amazing-feature`
+3. **Commit** your changes: `git commit -m 'Add amazing feature'`
+4. **Push** to the branch: `git push origin feature/amazing-feature`
+5. **Open a Pull Request** with a clear description.
+
+### Development Tips
+
+- Run the backend separately (`python backend/server.py`) to see Python logs.
+- Use `npm run dev` without Electron during frontend development (faster reload).
+- The `projects/` folder contains user data—don't commit it to Git.
+
+---
+
+## 🔒 Security Considerations
+
+| Aspect | Implementation |
+|--------|----------------|
+| **API Keys** | Stored in `.env`, never committed to Git. |
+| **Face Data** | Processed locally, never uploaded. |
+| **Tool Confirmations** | Write/CAD/Web actions can require user approval. |
+| **No Cloud Storage** | All project data stays on your machine. |
+
+> [!WARNING]
+> Never share your `.env` file or `reference.jpg`. These contain sensitive credentials and biometric data.
+
+---
+
+## 🙏 Acknowledgments
+
+- **[Google Gemini](https://deepmind.google/technologies/gemini/)** — Native Audio API for real-time voice
+- **[build123d](https://github.com/gumyr/build123d)** — Modern parametric CAD library
+- **[MediaPipe](https://developers.google.com/mediapipe)** — Hand tracking and gesture recognition
+- **[Playwright](https://playwright.dev/)** — Reliable browser automation
+- **[face_recognition](https://github.com/ageitgey/face_recognition)** — Simple face recognition library
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+---
+
+<p align="center">
+  <strong>Built with 🤖 by Nazir Louis</strong><br>
+  <em>Bridging AI, CAD, and Vision in a Single Interface</em>
+</p>
