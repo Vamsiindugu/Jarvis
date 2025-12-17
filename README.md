@@ -8,7 +8,7 @@
 
 > **A.D.A** = **A**dvanced **D**esign **A**ssistant
 
-ADA V2 is a sophisticated AI assistant designed for multimodal interaction, running on a unified Python 3.11 environment. It combines Google's Gemini 2.5 Native Audio with computer vision, gesture control, and 3D CAD generation in a unified Electron desktop application.
+ADA V2 is a sophisticated AI assistant designed for multimodal interaction. It combines Google's Gemini 2.5 Native Audio with computer vision, gesture control, and 3D CAD generation in a Electron desktop application.
 
 ---
 
