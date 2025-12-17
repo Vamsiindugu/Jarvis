@@ -67,11 +67,15 @@ class PrinterDiscoveryListener(ServiceListener):
         info = zc.get_service_info(type_, name)
         if info:
             host = info.parsed_addresses()[0] if info.parsed_addresses() else None
+            # Fallback to server name if address parsing fails
+            if not host and info.server:
+                host = info.server.rstrip('.')
+
             if host:
                 # Determine printer type from service type
                 if "_octoprint._tcp" in type_:
                     printer_type = PrinterType.OCTOPRINT
-                elif "_moonraker._tcp" in type_:
+                elif "_moonraker._tcp" in type_ or "_klipper._tcp" in type_:
                     printer_type = PrinterType.MOONRAKER
                 else:
                     printer_type = PrinterType.UNKNOWN
@@ -83,8 +87,8 @@ class PrinterDiscoveryListener(ServiceListener):
                     printer_type=printer_type
                 )
                 self.printers.append(printer)
-                print(f"[PRINTER] Discovered: {printer.name} at {printer.host}:{printer.port}")
-    
+                print(f"[PRINTER] Discovered: {printer.name} at {printer.host}:{printer.port} ({printer.printer_type.value})")
+
     def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
         pass
     
@@ -149,7 +153,7 @@ class PrinterAgent:
         
         print("[PRINTER] Warning: PrusaSlicer not found. Slicing will fail.")
         return None
-    
+
     async def discover_printers(self, timeout: float = 5.0) -> List[Dict]:
         """
         Discovers 3D printers on the local network via mDNS.
@@ -164,7 +168,8 @@ class PrinterAgent:
         services = [
             "_octoprint._tcp.local.",
             "_moonraker._tcp.local.",
-            "_http._tcp.local."  # Generic HTTP - may catch PrusaLink
+            "_klipper._tcp.local.", # Some Klipper installs use this
+            "_http._tcp.local."  # Generic HTTP - critical for some Creality/Prusa setups
         ]
         
         browsers = []
@@ -178,12 +183,58 @@ class PrinterAgent:
         # Cleanup
         self._zeroconf.close()
         
+        # PROBE UNKNOWN PRINTERS
+        # Many printers show up as _http._tcp with generic names
+        # We try to identify them by hitting known endpoints
+        for printer in listener.printers:
+            if printer.printer_type == PrinterType.UNKNOWN:
+                print(f"[PRINTER] Probing unknown printer: {printer.host}...")
+                ptype = await self._probe_printer_type(printer.host, printer.port)
+                if ptype != PrinterType.UNKNOWN:
+                    printer.printer_type = ptype
+                    print(f"[PRINTER] Identified {printer.name} as {ptype.value}")
+        
         # Store discovered printers
         for printer in listener.printers:
+            # Avoid duplicates if we found same host on multiple services
             self.printers[printer.host] = printer
         
-        print(f"[PRINTER] Discovery complete. Found {len(listener.printers)} printers.")
-        return [p.to_dict() for p in listener.printers]
+        print(f"[PRINTER] Discovery complete. Found {len(self.printers)} printers.")
+        return [p.to_dict() for p in self.printers.values()]
+
+    async def _probe_printer_type(self, host: str, port: int) -> PrinterType:
+        """Probe a host to check if it's running Moonraker or OctoPrint."""
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
+                # Check Moonraker (Creality K1, Klipper)
+                # /printer/info is a standard Moonraker public endpoint
+                try:
+                    url = f"http://{host}:{port}/printer/info"
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            if "result" in data or "hostname" in data:
+                                return PrinterType.MOONRAKER
+                except:
+                    pass
+
+                # Check OctoPrint
+                # /api/version usually requires key, but returns 401 or 200
+                try:
+                     url = f"http://{host}:{port}/api/version"
+                     async with session.get(url) as resp:
+                         # 200 (if public), 403 (needs key) - both mean it IS OctoPrint
+                         if resp.status in (200, 403, 401):
+                             # To be sure, check header or body?
+                             # For now, it's a strong signal
+                             return PrinterType.OCTOPRINT
+                except:
+                    pass
+                    
+        except Exception as e:
+            print(f"[PRINTER] Probel error for {host}: {e}")
+        
+        return PrinterType.UNKNOWN
     
     def add_printer_manually(self, name: str, host: str, port: int = 80, 
                              printer_type: str = "octoprint", api_key: Optional[str] = None) -> Printer:
