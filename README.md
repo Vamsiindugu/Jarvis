@@ -138,6 +138,49 @@ The system creates a `settings.json` file on first run. You can modify this to c
 
 ---
 
+---
+
+## 🚀 Running ADA V2
+
+You have two options to run the app. Ensure your `ada_v2_1` environment is active!
+
+### Option 1: The "Easy" Way (Single Terminal)
+The app is smart enough to start the backend for you.
+1. Open your terminal in the `ada_v2` folder.
+2. Activate your environment: `conda activate ada_v2_1`
+3. Run:
+   ```bash
+   npm run dev
+   ```
+4. The backend will start automatically in the background.
+
+### Option 2: The "Developer" Way (Two Terminals)
+Use this if you want to see the Python logs (recommended for debugging).
+
+**Terminal 1 (Backend):**
+```bash
+conda activate ada_v2_1
+python backend/server.py
+```
+
+**Terminal 2 (Frontend):**
+```bash
+# Environment doesn't matter here, but keep it simple
+npm run dev
+```
+
+---
+
+## ✅ First Flight Checklist (Things to Test)
+
+1. **Voice Check**: Say "Hello Ada". She should respond.
+2. **Vision Check**: Look at the camera. If Face Auth is on, the lock screen should unlock.
+3. **CAD Check**: Open the CAD window and say "Create a cube". Watch the logs.
+4. **Web Check**: Open the Browser window and say "Go to Google".
+5. **Smart Home**: If you have Kasa devices, say "Turn on the lights".
+
+---
+
 ## ▶️ Commands & Tools Reference
 
 ### �️ Voice Commands
