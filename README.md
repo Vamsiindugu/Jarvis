@@ -15,7 +15,39 @@ ADA V2 is a sophisticated AI assistant designed for multimodal interaction, runn
 
 ## 🛠️ Installation Requirements
 
-This project has **strict** requirements due to the combination of legacy vision libraries (`dlib` for face rec) and modern CAD tools (`build123d`).
+### 🆕 Absolute Beginner Setup (Start Here)
+If you have never coded before, follow these steps first!
+
+**Step 1: Install Visual Studio Code (The Editor)**
+- Download and install [VS Code](https://code.visualstudio.com/). This is where you will write code and run commands.
+
+**Step 2: Install Anaconda (The Manager)**
+- Download [Miniconda](https://docs.conda.io/en/latest/miniconda.html) (a lightweight version of Anaconda).
+- This tool allows us to create isolated "playgrounds" (environments) for our code so different projects don't break each other.
+- **Windows Users**: During install, check "Add Anaconda to my PATH environment variable" (even if it says not recommended, it makes things easier for beginners).
+
+**Step 3: Install Git (The Downloader)**
+- **Windows**: Download [Git for Windows](https://git-scm.com/download/win).
+- **Mac**: Open the "Terminal" app (Cmd+Space, type Terminal) and type `git`. If not installed, it will ask to install developer tools—say yes.
+
+**Step 4: Get the Code**
+1. Open your terminal (or Command Prompt on Windows).
+2. Type this command and hit Enter:
+   ```bash
+   git clone https://github.com/nazirlouis/ada_v2.git
+   ```
+3. This creates a folder named `ada_v2`.
+
+**Step 5: Open in VS Code**
+1. Open VS Code.
+2. Go to **File > Open Folder**.
+3. Select the `ada_v2` folder you just downloaded.
+4. Open the internal terminal: Press `Ctrl + ~` (tilde) or go to **Terminal > New Terminal**.
+
+---
+
+### ⚠️ Technical Prerequisites
+Once you have the basics above, continue here. This project has **strict** requirements due to the combination of legacy vision libraries (`dlib` for face rec) and modern CAD tools (`build123d`).
 
 ### 1. System Dependencies (C++ Build Tools)
 Required for compiling `dlib` and `face_recognition`.
