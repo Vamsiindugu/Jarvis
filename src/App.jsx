@@ -50,6 +50,7 @@ function App() {
     const [inputValue, setInputValue] = useState('');
     const [cadData, setCadData] = useState(null);
     const [cadThoughts, setCadThoughts] = useState(''); // Streaming AI thoughts
+    const [cadRetryInfo, setCadRetryInfo] = useState({ attempt: 1, maxAttempts: 3, error: null }); // Retry status
     const [browserData, setBrowserData] = useState({ image: null, logs: [] });
     // showMemoryPrompt removed - memory is now actively saved to project
     const [confirmationRequest, setConfirmationRequest] = useState(null); // { id, tool, args }
@@ -311,10 +312,20 @@ function App() {
             }
         });
         socket.on('cad_status', (data) => {
-            console.log("Received CAD Status:", data.status);
-            if (data.status === 'generating') {
+            console.log("Received CAD Status:", data);
+            // Extract retry info from extended payload
+            if (data.attempt) {
+                setCadRetryInfo({
+                    attempt: data.attempt,
+                    maxAttempts: data.max_attempts || 3,
+                    error: data.error
+                });
+            }
+            if (data.status === 'generating' || data.status === 'retrying') {
                 setCadData({ format: 'loading' });
-                setCadThoughts(''); // Clear previous thoughts for new generation
+                if (data.status === 'generating' && data.attempt === 1) {
+                    setCadThoughts(''); // Clear previous thoughts for new generation
+                }
                 // Auto-show the window
                 if (!elementPositions.cad) {
                     setElementPositions(prev => ({
@@ -322,6 +333,9 @@ function App() {
                         cad: { x: window.innerWidth / 2 + 200, y: window.innerHeight / 2 }
                     }));
                 }
+            } else if (data.status === 'failed') {
+                // Keep loading state but show error
+                setCadData({ format: 'loading' });
             }
         });
         socket.on('cad_thought', (data) => {
@@ -1262,7 +1276,7 @@ function App() {
                     >
                         <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
                         <div className="relative z-20 w-full h-full">
-                            <CadWindow data={cadData} thoughts={cadThoughts} onClose={() => setCadData(null)} socket={socket} />
+                            <CadWindow data={cadData} thoughts={cadThoughts} retryInfo={cadRetryInfo} onClose={() => setCadData(null)} socket={socket} />
                         </div>
                         {isModularMode && <div className={`absolute top-2 left-2 text-xs font-bold tracking-widest z-20 ${activeDragElement === 'cad' ? 'text-green-500' : 'text-cyan-500/50'}`}>CAD PROTOTYPE</div>}
                     </div>

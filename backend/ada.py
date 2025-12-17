@@ -93,7 +93,43 @@ list_projects_tool = {
     }
 }
 
-tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool] + tools_list[0]['function_declarations'][1:]}]
+list_smart_devices_tool = {
+    "name": "list_smart_devices",
+    "description": "Lists all available smart home devices (lights, plugs, etc.) on the network.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {},
+    }
+}
+
+control_light_tool = {
+    "name": "control_light",
+    "description": "Controls a smart light device.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "target": {
+                "type": "STRING",
+                "description": "The alias or IP address of the device to control."
+            },
+            "action": {
+                "type": "STRING",
+                "description": "The action to perform: 'turn_on', 'turn_off', or 'set'."
+            },
+            "brightness": {
+                "type": "INTEGER",
+                "description": "Optional brightness level (0-100)."
+            },
+            "color": {
+                "type": "STRING",
+                "description": "Optional color name (e.g., 'red', 'cool white') or 'warm'."
+            }
+        },
+        "required": ["target", "action"]
+    }
+}
+
+tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool] + tools_list[0]['function_declarations'][1:]}]
 
 # --- CONFIG UPDATE: Enabled Transcription ---
 config = types.LiveConnectConfig(
@@ -120,6 +156,7 @@ pya = pyaudio.PyAudio()
 
 from cad_agent import CadAgent
 from web_agent import WebAgent
+from kasa_agent import KasaAgent
 
 class AudioLoop:
     def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, input_device_index=None, output_device_index=None):
@@ -157,8 +194,13 @@ class AudioLoop:
             if self.on_cad_thought:
                 self.on_cad_thought(thought_text)
         
-        self.cad_agent = CadAgent(on_thought=handle_cad_thought)
+        def handle_cad_status(status_info):
+            if self.on_cad_status:
+                self.on_cad_status(status_info)
+        
+        self.cad_agent = CadAgent(on_thought=handle_cad_thought, on_status=handle_cad_status)
         self.web_agent = WebAgent()
+        self.kasa_agent = KasaAgent()
 
         self.send_text_task = None
         self.stop_event = asyncio.Event()
@@ -519,7 +561,7 @@ class AudioLoop:
                         print("The tool was called")
                         function_responses = []
                         for fc in response.tool_call.function_calls:
-                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects"]:
+                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light"]:
                                 prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
                                 
                                 # Check Permissions (Default to True if not set)
@@ -636,12 +678,12 @@ class AudioLoop:
                                     name = fc.args["name"]
                                     print(f"[ADA DEBUG] [TOOL] Tool Call: 'create_project' name='{name}'")
                                     success, msg = self.project_manager.create_project(name)
-                                    if success and self.on_project_update:
-                                        # Assuming create also switches, or we just notify creation?
-                                        # Usually creating doesn't auto-switch unless specified.
-                                        # Let's assume just notify or if we want to auto-switch logic inside manager.
-                                        # But switch_project is explicit.
-                                        pass 
+                                    if success:
+                                        # Auto-switch to the newly created project
+                                        self.project_manager.switch_project(name)
+                                        msg += f" Switched to '{name}'."
+                                        if self.on_project_update:
+                                            self.on_project_update(name)
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": msg}
                                     )
@@ -651,8 +693,16 @@ class AudioLoop:
                                     name = fc.args["name"]
                                     print(f"[ADA DEBUG] [TOOL] Tool Call: 'switch_project' name='{name}'")
                                     success, msg = self.project_manager.switch_project(name)
-                                    if success and self.on_project_update:
-                                        self.on_project_update(name)
+                                    if success:
+                                        if self.on_project_update:
+                                            self.on_project_update(name)
+                                        # Gather project context and send to AI
+                                        context = self.project_manager.get_project_context()
+                                        print(f"[ADA DEBUG] [PROJECT] Sending project context to AI ({len(context)} chars)")
+                                        try:
+                                            await self.session.send(input=f"System Notification: {msg}\n\n{context}", end_of_turn=True)
+                                        except Exception as e:
+                                            print(f"[ADA DEBUG] [ERR] Failed to send project context: {e}")
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": msg}
                                     )
@@ -663,6 +713,65 @@ class AudioLoop:
                                     projects = self.project_manager.list_projects()
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": f"Available projects: {', '.join(projects)}"}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "list_smart_devices":
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'list_smart_devices'")
+                                    # Ensure discovery runs at least once or refreshes
+                                    devices = await self.kasa_agent.discover_devices()
+                                    # Format for model
+                                    dev_summaries = []
+                                    for d in devices:
+                                        info = f"{d['alias']} (IP: {d['ip']}, Type: {d['type']})"
+                                        if d['is_on']:
+                                            info += " [ON]"
+                                        else:
+                                            info += " [OFF]"
+                                        dev_summaries.append(info)
+                                    
+                                    result_str = "No devices found."
+                                    if dev_summaries:
+                                        result_str = "Found Devices:\n" + "\n".join(dev_summaries)
+
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "control_light":
+                                    target = fc.args["target"]
+                                    action = fc.args["action"]
+                                    brightness = fc.args.get("brightness")
+                                    color = fc.args.get("color")
+                                    
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'control_light' Target='{target}' Action='{action}'")
+                                    
+                                    result_msg = f"Action '{action}' on '{target}' failed."
+                                    success = False
+                                    
+                                    if action == "turn_on":
+                                        success = await self.kasa_agent.turn_on(target)
+                                        if success:
+                                            result_msg = f"Turned ON '{target}'."
+                                    elif action == "turn_off":
+                                        success = await self.kasa_agent.turn_off(target)
+                                        if success:
+                                            result_msg = f"Turned OFF '{target}'."
+                                    
+                                    # Apply extra attributes if 'set' or if we just turned it on and want to set them too
+                                    if success or action == "set":
+                                        if brightness is not None:
+                                            sb = await self.kasa_agent.set_brightness(target, brightness)
+                                            if sb:
+                                                result_msg += f" Set brightness to {brightness}."
+                                        if color is not None:
+                                            sc = await self.kasa_agent.set_color(target, color)
+                                            if sc:
+                                                result_msg += f" Set color to {color}."
+
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_msg}
                                     )
                                     function_responses.append(function_response)
                         if function_responses:
@@ -725,48 +834,98 @@ class AudioLoop:
          pass
 
     async def run(self, start_message=None):
-        try:
-            async with (
-                client.aio.live.connect(model=MODEL, config=config) as session,
-                asyncio.TaskGroup() as tg,
-            ):
-                self.session = session
+        retry_delay = 1
+        is_reconnect = False
+        
+        while not self.stop_event.is_set():
+            try:
+                print(f"[ADA DEBUG] [CONNECT] Connecting to Gemini Live API...")
+                async with (
+                    client.aio.live.connect(model=MODEL, config=config) as session,
+                    asyncio.TaskGroup() as tg,
+                ):
+                    self.session = session
 
-                self.audio_in_queue = asyncio.Queue()
-                # Increased queue size slightly to prevent drops during tool calls
-                self.out_queue = asyncio.Queue(maxsize=10)
+                    self.audio_in_queue = asyncio.Queue()
+                    self.out_queue = asyncio.Queue(maxsize=10)
 
-                tg.create_task(self.send_realtime())
-                tg.create_task(self.listen_audio())
+                    tg.create_task(self.send_realtime())
+                    tg.create_task(self.listen_audio())
 
-                if self.video_mode == "camera":
-                    tg.create_task(self.get_frames())
-                elif self.video_mode == "screen":
-                    tg.create_task(self.get_screen())
+                    if self.video_mode == "camera":
+                        tg.create_task(self.get_frames())
+                    elif self.video_mode == "screen":
+                        tg.create_task(self.get_screen())
 
-                tg.create_task(self.receive_audio())
-                tg.create_task(self.play_audio())
+                    tg.create_task(self.receive_audio())
+                    tg.create_task(self.play_audio())
 
-                if start_message:
-                    print(f"[ADA DEBUG] [INFO] Sending start message: {start_message}")
-                    await self.session.send(input=start_message, end_of_turn=True)
+                    # Handle Startup vs Reconnect Logic
+                    if not is_reconnect:
+                        if start_message:
+                            print(f"[ADA DEBUG] [INFO] Sending start message: {start_message}")
+                            await self.session.send(input=start_message, end_of_turn=True)
+                        
+                        # Sync Project State
+                        if self.on_project_update and self.project_manager:
+                            self.on_project_update(self.project_manager.current_project)
+                    
+                    else:
+                        print(f"[ADA DEBUG] [RECONNECT] Connection restored.")
+                        # Restore Context
+                        print(f"[ADA DEBUG] [RECONNECT] Fetching recent chat history to restore context...")
+                        history = self.project_manager.get_recent_chat_history(limit=10)
+                        
+                        context_msg = "System Notification: Connection was lost and just re-established. Here is the recent chat history to help you resume seamlessly:\n\n"
+                        for entry in history:
+                            sender = entry.get('sender', 'Unknown')
+                            text = entry.get('text', '')
+                            context_msg += f"[{sender}]: {text}\n"
+                        
+                        context_msg += "\nPlease acknowledge the reconnection to the user (e.g. 'I lost connection for a moment, but I'm back...') and resume what you were doing."
+                        
+                        print(f"[ADA DEBUG] [RECONNECT] Sending restoration context to model...")
+                        await self.session.send(input=context_msg, end_of_turn=True)
+
+                    # Reset retry delay on successful connection
+                    retry_delay = 1
+                    
+                    # Wait until stop event, or until the session task group exits (which happens on error)
+                    # Actually, the TaskGroup context manager will exit if any tasks fail/cancel.
+                    # We need to keep this block alive.
+                    # The original code just waited on stop_event, but that doesn't account for session death.
+                    # We should rely on the TaskGroup raising an exception when subtasks fail (like receive_audio).
+                    
+                    # However, since receive_audio is a task in the group, if it crashes (connection closed), 
+                    # the group will cancel others and exit. We catch that exit below.
+                    
+                    # We can await stop_event, but if the connection dies, receive_audio crashes -> group closes -> we exit `async with` -> restart loop.
+                    # To ensure we don't block indefinitely if connection dies silently (unlikely with receive_audio), we just wait.
+                    await self.stop_event.wait()
+
+            except asyncio.CancelledError:
+                print(f"[ADA DEBUG] [STOP] Main loop cancelled.")
+                break
                 
-                # Sync Project State
-                if self.on_project_update and self.project_manager:
-                     self.on_project_update(self.project_manager.current_project)
-
-                await self.stop_event.wait()
-
-        except asyncio.CancelledError:
-            pass
-        except ExceptionGroup as EG:
-            if hasattr(self, 'audio_stream') and self.audio_stream:
-                self.audio_stream.close()
-            traceback.print_exception(EG)
-        except Exception as e:
-            print(f"Run error: {e}")
-            if hasattr(self, 'audio_stream') and self.audio_stream:
-                self.audio_stream.close()
+            except Exception as e:
+                # This catches the ExceptionGroup from TaskGroup or direct exceptions
+                print(f"[ADA DEBUG] [ERR] Connection Error: {e}")
+                
+                if self.stop_event.is_set():
+                    break
+                
+                print(f"[ADA DEBUG] [RETRY] Reconnecting in {retry_delay} seconds...")
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 10) # Exponential backoff capped at 10s
+                is_reconnect = True # Next loop will be a reconnect
+                
+            finally:
+                # Cleanup before retry
+                if hasattr(self, 'audio_stream') and self.audio_stream:
+                    try:
+                        self.audio_stream.close()
+                    except: 
+                        pass
 
 def get_input_devices():
     p = pyaudio.PyAudio()

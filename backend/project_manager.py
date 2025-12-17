@@ -87,3 +87,80 @@ class ProjectManager:
         except Exception as e:
             print(f"[ProjectManager] [ERR] Failed to save artifact: {e}")
             return None
+
+    def get_project_context(self, max_file_size: int = 10000) -> str:
+        """
+        Gathers context about the current project for the AI.
+        Lists all files and reads text file contents (up to max_file_size bytes).
+        """
+        project_path = self.get_current_project_path()
+        if not project_path.exists():
+            return f"Project '{self.current_project}' does not exist."
+
+        context_lines = [f"=== Project Context: '{self.current_project}' ==="]
+        context_lines.append(f"Project directory: {project_path}")
+        context_lines.append("")
+
+        # List all files recursively
+        all_files = []
+        for root, dirs, files in os.walk(project_path):
+            for f in files:
+                rel_path = os.path.relpath(os.path.join(root, f), project_path)
+                all_files.append(rel_path)
+
+        if not all_files:
+            context_lines.append("(No files in project yet)")
+        else:
+            context_lines.append(f"Files ({len(all_files)} total):")
+            for f in all_files:
+                context_lines.append(f"  - {f}")
+
+        context_lines.append("")
+
+        # Read text files (skip binary and large files)
+        text_extensions = {'.txt', '.py', '.js', '.jsx', '.ts', '.tsx', '.json', '.md', '.html', '.css', '.jsonl'}
+        for rel_path in all_files:
+            ext = os.path.splitext(rel_path)[1].lower()
+            if ext not in text_extensions:
+                continue
+
+            full_path = project_path / rel_path
+            try:
+                file_size = full_path.stat().st_size
+                if file_size > max_file_size:
+                    context_lines.append(f"--- {rel_path} (too large: {file_size} bytes, skipped) ---")
+                    continue
+
+                with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                context_lines.append(f"--- {rel_path} ---")
+                context_lines.append(content)
+                context_lines.append("")
+            except Exception as e:
+                context_lines.append(f"--- {rel_path} (error reading: {e}) ---")
+
+        return "\n".join(context_lines)
+
+    def get_recent_chat_history(self, limit: int = 10):
+        """Returns the last 'limit' chat messages from history."""
+        log_file = self.get_current_project_path() / "chat_history.jsonl"
+        if not log_file.exists():
+            return []
+            
+        try:
+            with open(log_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+                
+            # Parse last N lines
+            history = []
+            for line in lines[-limit:]:
+                try:
+                    entry = json.loads(line)
+                    history.append(entry)
+                except json.JSONDecodeError:
+                    continue
+            return history
+        except Exception as e:
+            print(f"[ProjectManager] [ERR] Failed to read chat history: {e}")
+            return []
+

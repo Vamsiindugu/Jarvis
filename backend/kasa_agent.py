@@ -44,70 +44,140 @@ class KasaAgent:
         print(f"Found {len(device_list)} Kasa devices.")
         return device_list
 
-    async def turn_on(self, ip):
-        """Turns on the device at the given IP."""
-        if ip in self.devices:
-            dev = self.devices[ip]
-            await dev.turn_on()
-            await dev.update()
-            return True
-        else:
-            # Try to connect if not in cache (e.g. after restart)
+    def get_device_by_alias(self, alias):
+        """Finds a device by its alias (case-insensitive)."""
+        for ip, dev in self.devices.items():
+            if dev.alias.lower() == alias.lower():
+                return dev
+        return None
+
+    def _resolve_device(self, target):
+        """Resolves a target string (IP or Alias) to a device object."""
+        # check if it is an IP 
+        if target in self.devices:
+            return self.devices[target]
+        
+        # Check alias
+        dev = self.get_device_by_alias(target)
+        if dev:
+            return dev
+            
+        return None
+
+    def name_to_hsv(self, color_name):
+        """Converts common color names to HSV (Hue, Saturation, Value).
+           Hue: 0-360, Sat: 0-100, Val: 0-100
+        """
+        color_name = color_name.lower().strip()
+        colors = {
+            "red": (0, 100, 100),
+            "orange": (30, 100, 100),
+            "yellow": (60, 100, 100),
+            "green": (120, 100, 100),
+            "cyan": (180, 100, 100),
+            "blue": (240, 100, 100),
+            "purple": (300, 100, 100),
+            "pink": (300, 50, 100),
+            "white": (0, 0, 100),
+            "warm": (30, 20, 100), # Warm White approx
+            "cool": (200, 10, 100), # Cool White approx
+            "daylight": (0, 0, 100),
+        }
+        return colors.get(color_name, None)
+
+    async def turn_on(self, target):
+        """Turns on the device (Target: IP or Alias)."""
+        dev = self._resolve_device(target)
+        if dev:
             try:
-                dev = await Discover.discover_single(ip)
+                await dev.turn_on()
+                await dev.update()
+                return True
+            except Exception as e:
+                print(f"Error turning on {target}: {e}")
+                return False
+        
+        # Fallback: Try to discover single if it looks like an IP
+        if target.count(".") == 3:
+             try:
+                dev = await Discover.discover_single(target)
                 if dev:
-                    self.devices[ip] = dev
+                    self.devices[target] = dev
                     await dev.turn_on()
                     await dev.update()
                     return True
-            except Exception as e:
-                print(f"Error turning on {ip}: {e}")
+             except Exception:
+                 pass
         return False
 
-    async def turn_off(self, ip):
-        """Turns off the device at the given IP."""
-        if ip in self.devices:
-            dev = self.devices[ip]
-            await dev.turn_off()
-            await dev.update()
-            return True
-        else:
+    async def turn_off(self, target):
+        """Turns off the device (Target: IP or Alias)."""
+        dev = self._resolve_device(target)
+        if dev:
             try:
-                dev = await Discover.discover_single(ip)
+                await dev.turn_off()
+                await dev.update()
+                return True
+            except Exception as e:
+                print(f"Error turning off {target}: {e}")
+                return False
+        
+        if target.count(".") == 3:
+             try:
+                dev = await Discover.discover_single(target)
                 if dev:
-                    self.devices[ip] = dev
+                    self.devices[target] = dev
                     await dev.turn_off()
                     await dev.update()
                     return True
-            except Exception as e:
-                print(f"Error turning off {ip}: {e}")
+             except Exception:
+                 pass
         return False
 
-    async def set_brightness(self, ip, brightness):
+    async def set_brightness(self, target, brightness):
         """Sets brightness (0-100)."""
-        if ip in self.devices:
-            dev = self.devices[ip]
-            if dev.is_dimmable:
+        dev = self._resolve_device(target)
+        if dev and (dev.is_dimmable or dev.is_bulb):
+            try:
                 await dev.set_brightness(int(brightness))
                 await dev.update()
                 return True
+            except Exception as e:
+                 print(f"Error setting brightness for {target}: {e}")
         return False
 
-    async def set_hsv(self, ip, h, s, v):
-        """Sets HSV color."""
-        if ip in self.devices:
-            dev = self.devices[ip]
-            if dev.is_color:
-                await dev.set_hsv(int(h), int(s), int(v))
+    async def set_color(self, target, color_input):
+        """Sets color by name or direct HSV tuple."""
+        dev = self._resolve_device(target)
+        if not dev or not dev.is_color:
+            return False
+
+        hsv = None
+        if isinstance(color_input, str):
+            hsv = self.name_to_hsv(color_input)
+        elif isinstance(color_input, (tuple, list)) and len(color_input) == 3:
+            hsv = color_input
+        
+        if hsv:
+            try:
+                # Kasa expects Hue (0-360), Sat (0-100), Val (0-100)
+                await dev.set_hsv(int(hsv[0]), int(hsv[1]), int(hsv[2]))
                 await dev.update()
                 return True
+            except Exception as e:
+                 print(f"Error setting color for {target}: {e}")
+
         return False
 
 # Standalone test
 if __name__ == "__main__":
     async def main():
         agent = KasaAgent()
-        devices = await agent.discover_devices()
-        print(devices)
+        await agent.discover_devices()
+        print("Devices:", agent.devices)
+        
+        # Example Test
+        # await agent.turn_on("Bedroom Light")
+        # await agent.set_color("Bedroom Light", "Red")
     
     asyncio.run(main())

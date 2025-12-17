@@ -3,12 +3,14 @@
     "tool_permissions": {
         "generate_cad": true,
         "run_web_agent": true,
-        "create_directory": false,
         "write_file": false,
         "read_directory": false,
         "read_file": false,
         "create_project": false,
         "switch_project": false,
-        "list_projects": false
+        "list_projects": false,
+        "create_directory": false,
+        "list_smart_devices": false,
+        "control_light": false
     }
 }

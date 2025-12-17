@@ -184,9 +184,16 @@ async def start_audio(sid, data=None):
 
     # Callback to send CAD status to frontend
     def on_cad_status(status):
-        # status: "generating", "complete", etc.
-        print(f"Sending CAD Status: {status}")
-        asyncio.create_task(sio.emit('cad_status', {'status': status}))
+        # status can be: 
+        # - a string like "generating" (from ada.py handle_cad_request)
+        # - a dict with {status, attempt, max_attempts, error} (from CadAgent)
+        if isinstance(status, dict):
+            print(f"Sending CAD Status: {status.get('status')} (attempt {status.get('attempt')}/{status.get('max_attempts')})")
+            asyncio.create_task(sio.emit('cad_status', status))
+        else:
+            # Legacy: simple string
+            print(f"Sending CAD Status: {status}")
+            asyncio.create_task(sio.emit('cad_status', {'status': status}))
 
     # Callback to send CAD thoughts to frontend (streaming)
     def on_cad_thought(thought_text):

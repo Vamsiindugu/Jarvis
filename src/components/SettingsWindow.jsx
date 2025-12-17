@@ -11,6 +11,8 @@ const TOOLS = [
     { id: 'create_project', label: 'Create Project' },
     { id: 'switch_project', label: 'Switch Project' },
     { id: 'list_projects', label: 'List Projects' },
+    { id: 'list_smart_devices', label: 'List Devices' },
+    { id: 'control_light', label: 'Control Light' },
 ];
 
 const SettingsWindow = ({

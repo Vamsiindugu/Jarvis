@@ -26,7 +26,7 @@ const LoadingCube = () => {
     );
 };
 
-const CadWindow = ({ data, thoughts, onClose, socket }) => {
+const CadWindow = ({ data, thoughts, retryInfo = {}, onClose, socket }) => {
     // data format: { format: "stl", data: "base64..." }
     const [isIterating, setIsIterating] = useState(false);
     const [prompt, setPrompt] = useState("");
@@ -154,12 +154,24 @@ const CadWindow = ({ data, thoughts, onClose, socket }) => {
             </Canvas>
 
             {/* Streaming Thoughts Panel */}
-            {data?.format === 'loading' && thoughts && (
+            {data?.format === 'loading' && (
                 <div className="absolute inset-y-0 right-0 w-2/5 p-4 bg-black/70 backdrop-blur-sm border-l border-green-500/30 overflow-hidden flex flex-col">
-                    <h4 className="text-green-400 text-xs font-mono mb-2 tracking-widest uppercase flex items-center gap-2">
-                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                        Designer Thinking...
-                    </h4>
+                    <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-green-400 text-xs font-mono tracking-widest uppercase flex items-center gap-2">
+                            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                            Designer Thinking...
+                        </h4>
+                        {retryInfo.attempt && (
+                            <span className={`text-xs font-mono px-2 py-0.5 rounded ${retryInfo.error ? 'bg-yellow-500/20 text-yellow-400' : 'bg-cyan-500/20 text-cyan-400'}`}>
+                                Attempt {retryInfo.attempt}/{retryInfo.maxAttempts || 3}
+                            </span>
+                        )}
+                    </div>
+                    {retryInfo.error && (
+                        <div className="mb-2 p-2 bg-red-500/10 border border-red-500/30 rounded text-red-400 text-xs font-mono">
+                            <span className="text-red-500 font-bold">⚠ Error:</span> {retryInfo.error}
+                        </div>
+                    )}
                     <div className="flex-1 overflow-y-auto text-green-400/80 text-xs font-mono whitespace-pre-wrap leading-relaxed scrollbar-thin scrollbar-thumb-green-500/30">
                         {thoughts}
                         <div ref={thoughtsEndRef} />

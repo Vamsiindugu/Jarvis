@@ -10,11 +10,12 @@ from typing import List
 load_dotenv()
 
 class CadAgent:
-    def __init__(self, on_thought=None):
+    def __init__(self, on_thought=None, on_status=None):
         self.client = genai.Client(http_options={"api_version": "v1beta"}, api_key=os.getenv("GEMINI_API_KEY"))
         # Using Gemini 2.5 Pro for thinking/streaming support
-        self.model = "gemini-2.5-pro"
+        self.model = "gemini-3-pro-preview"
         self.on_thought = on_thought  # Callback for streaming thoughts 
+        self.on_status = on_status  # Callback for retry status info
         
         self.system_instruction = """
 You are a Python-based 3D CAD Engineer using the `build123d` library.
@@ -74,6 +75,16 @@ export_stl(result_part, 'output.stl')
             
             for attempt in range(max_retries):
                 print(f"[CadAgent DEBUG] Attempt {attempt + 1}/{max_retries}")
+                
+                # Emit status update
+                if self.on_status:
+                    status_info = {
+                        "status": "generating" if attempt == 0 else "retrying",
+                        "attempt": attempt + 1,
+                        "max_attempts": max_retries,
+                        "error": None
+                    }
+                    self.on_status(status_info)
                 
                 # 1. Ask Gemini for the code with streaming and thinking
                 raw_content = ""
@@ -145,7 +156,19 @@ export_stl(result_part, 'output.stl')
                 
                 if proc.returncode != 0:
                     error_msg = stderr.decode()
+                    # Extract a concise error message for display
+                    error_lines = error_msg.strip().split('\n')
+                    short_error = error_lines[-1][:100] if error_lines else "Unknown error"
                     print(f"[CadAgent DEBUG] [ERR] Script Execution Failed:\n{error_msg}")
+                    
+                    # Emit retry status with error
+                    if self.on_status:
+                        self.on_status({
+                            "status": "retrying",
+                            "attempt": attempt + 1,
+                            "max_attempts": max_retries,
+                            "error": short_error
+                        })
                     
                     # Preparing feedback for next attempt
                     current_prompt = f"""
@@ -182,6 +205,13 @@ Original request: {prompt}
 
             # If loop finishes without success
             print("[CadAgent DEBUG] [ERR] All attempts failed.")
+            if self.on_status:
+                self.on_status({
+                    "status": "failed",
+                    "attempt": max_retries,
+                    "max_attempts": max_retries,
+                    "error": "All generation attempts failed"
+                })
             return None
 
         except Exception as e:
@@ -229,6 +259,16 @@ Ensure you still export to 'output.stl'.
             
             for attempt in range(max_retries):
                 print(f"[CadAgent DEBUG] Iteration Attempt {attempt + 1}/{max_retries}")
+                
+                # Emit status update
+                if self.on_status:
+                    status_info = {
+                        "status": "generating" if attempt == 0 else "retrying",
+                        "attempt": attempt + 1,
+                        "max_attempts": max_retries,
+                        "error": None
+                    }
+                    self.on_status(status_info)
                 
                 # 1. Ask Gemini for the code with streaming and thinking
                 raw_content = ""
@@ -334,6 +374,13 @@ Ensure you still export to 'output.stl'.
 
             # If loop finishes without success
             print("[CadAgent DEBUG] [ERR] All attempts failed.")
+            if self.on_status:
+                self.on_status({
+                    "status": "failed",
+                    "attempt": max_retries,
+                    "max_attempts": max_retries,
+                    "error": "All iteration attempts failed"
+                })
             return None
 
         except Exception as e:
