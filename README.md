@@ -1,8 +1,123 @@
 # A.D.A V2 - Advanced Design Assistant
 
-ADA V2 is a sophisticated AI assistant designed for multimodal interaction, capable of voice conversations, vision processing (Face Auth), 3D CAD generation, web automation, and smart home control. It runs on a dual-environment architecture to handle complex dependency requirements between modern vision libraries and parametric CAD tools.
+ADA V2 is a sophisticated AI assistant designed for multimodal interaction, running on a dual-environment architecture to bridge the gap between real-time vision, voice, and parametric CAD engineering.
 
-## 🚀 System Architecture & Capabilities
+## 🌟 Capabilities at a Glance
+
+- **🗣️ Low-Latency Voice**: Real-time conversation with interruption handling using Gemini Native Audio.
+- **🧊 Parametric CAD**: Generates editable, mathematically accurate 3D models (STL) using `build123d`.
+- **🖐️ Minority Report UI**: Spatial gesture control for grabbing, moving, and snapping UI windows.
+- **👁️ Face Authentication**: Local, secure computer vision login system.
+- **🌐 Web Agent**: Autonomous browser automation for searching and data retrieval.
+- **🏠 Smart Home**: control over local TP-Link Kasa lights and plugs.
+
+---
+
+## 🛠️ Installation Requirements
+
+This project has **strict** requirements due to the combination of legacy vision libraries (`dlib` for face rec) and modern CAD tools (`build123d`).
+
+### 1. System Dependencies (C++ Build Tools)
+Required for compiling `dlib` and `face_recognition`.
+
+**MacOS:**
+```bash
+# Core build tools for face_recognition/dlib
+brew install cmake
+brew install boost
+brew install boost-python3
+
+# Audio Input/Output support (PyAudio)
+brew install portaudio
+```
+
+**Windows:**
+- Install Visual Studio Community 2022 with "Desktop development with C++".
+- Install CMake and add to PATH.
+
+### 2. Python Environments (Dual Setup)
+You must create **TWO** separate environments.
+
+**Env A: Main Backend (`ada_v2_1`)**
+Runs the Server, Voice, Vision, and Web Agent.
+```bash
+conda create -n ada_v2_1 python=3.10
+conda activate ada_v2_1
+
+# 1. Install dlib first (verify cmake is installed)
+pip install dlib
+
+# 2. Install main requirements
+pip install -r requirements.txt
+
+# 3. Install Playwright browsers
+playwright install chromium
+```
+
+**Env B: CAD Generation (`ada_cad_env`)**
+Runs isolated CAD generation scripts.
+```bash
+conda create -n ada_cad_env python=3.11
+conda activate ada_cad_env
+
+# Install build123d and numpy (requires newer numpy than Env A)
+pip install build123d numpy
+```
+
+### ⚠️ CRITICAL: Configure CAD Agent Path
+The main backend needs to know **exactly** where the CAD environment's python executable is located.
+
+1. Activate your CAD env: `conda activate ada_cad_env`
+2. Find the path: `which python` (or `where python` on Windows).
+   - Example Output: `/opt/anaconda3/envs/ada_cad_env/bin/python`
+3. Edit `backend/cad_agent.py` around line 147:
+   ```python
+   # UPDATE THIS PATH to match your system
+   cad_python_path = "/path/to/your/envs/ada_cad_env/bin/python"
+   ```
+
+### 3. Frontend Setup
+```bash
+npm install
+```
+
+---
+
+## ⚙️ Configuration (`settings.json`)
+
+The system creates a `settings.json` file on first run. You can modify this to change behavior:
+
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `face_auth_enabled` | `bool` | If `true`, blocks all AI interaction until your face is recognized via the camera. |
+| `tool_permissions` | `obj` | Controls manual approval for specific tools. |
+| `tool_permissions.generate_cad` | `bool` | If `true`, requires you to click "Confirm" on the UI before generating CAD. |
+| `tool_permissions.run_web_agent` | `bool` | If `true`, requires confirmation before opening the browser agent. |
+| `tool_permissions.write_file` | `bool` | **Critical**: Requires confirmation before the AI writes code/files to disk. |
+
+---
+
+## ▶️ Commands & Tools Reference
+
+### �️ Voice Commands
+- "Switch project to [Name]"
+- "Create a new project called [Name]"
+- "Turn on the [Room] light"
+- "Make the light [Color]"
+- "Pause audio" / "Stop audio"
+
+### 🧊 3D CAD
+- **Prompt**: "Create a 3D model of a hex bolt."
+- **Iterate**: "Make the head thinner." (Requires previous context)
+- **Files**: Saves to `projects/[ProjectName]/output.stl`.
+
+### 🌐 Web Agent
+- **Prompt**: "Go to Amazon and find a USB-C cable under $10."
+- **Note**: The agent will auto-scroll, click, and type. Do not interfere with the browser window while it runs.
+
+---
+
+## 🧠 Under the Hood: System Architecture
 
 ### 1. Communication (The Brain)
 **Native Audio Streaming (Low Latency)**
@@ -73,88 +188,3 @@ ADA V2 is a sophisticated AI assistant designed for multimodal interaction, capa
 ### 8. Long Term Memory (The Soul)
 - **Session Serialization**: Conversation logs are saved to `long_term_memory/` with timestamps.
 - **Memory Injection**: The `upload_memory` event allows uploading previous logs, treating them as "System Notifications" to restore the AI's memory of past events/rules.
-
----
-
-## 🛠️ Installation Requirements
-
-This project has **strict** requirements due to the combination of legacy vision libraries (`dlib` for face rec) and modern CAD tools (`build123d`).
-
-### 1. System Dependencies (C++ Build Tools)
-Required for compiling `dlib` and `face_recognition`.
-
-**MacOS:**
-```bash
-brew install cmake
-brew install boost
-brew install boost-python3
-```
-
-**Windows:**
-- Install Visual Studio Community 2022 with "Desktop development with C++".
-- Install CMake and add to PATH.
-
-### 2. Python Environments (Dual Setup)
-You must create **TWO** separate environments.
-
-**Env A: Main Backend (`ada_v2_1`)**
-Runs the Server, Voice, Vision, and Web Agent.
-```bash
-conda create -n ada_v2_1 python=3.10
-conda activate ada_v2_1
-
-# 1. Install dlib first (verify cmake is installed)
-pip install dlib
-
-# 2. Install main requirements
-pip install -r requirements.txt
-
-# 3. Install Playwright browsers
-playwright install chromium
-```
-
-**Env B: CAD Generation (`ada_cad_env`)**
-Runs isolated CAD generation scripts.
-```bash
-conda create -n ada_cad_env python=3.11
-conda activate ada_cad_env
-
-# Install build123d and numpy (requires newer numpy than Env A)
-pip install build123d numpy
-```
-*Note: Ensure `backend/cad_agent.py` points to this environment's python executable.*
-
-### 3. Frontend Setup
-```bash
-npm install
-```
-
-## ⚙️ Configuration (`settings.json`)
-
-The system creates a `settings.json` file on first run. You can modify this to change behavior:
-
-| Key | Type | Description |
-| :--- | :--- | :--- |
-| `face_auth_enabled` | `bool` | If `true`, blocks all AI interaction until your face is recognized via the camera. |
-| `tool_permissions` | `obj` | Controls manual approval for specific tools. |
-| `tool_permissions.generate_cad` | `bool` | If `true`, requires you to click "Confirm" on the UI before generating CAD. |
-| `tool_permissions.run_web_agent` | `bool` | If `true`, requires confirmation before opening the browser agent. |
-| `tool_permissions.write_file` | `bool` | **Critical**: Requires confirmation before the AI writes code/files to disk. |
-
-## ▶️ Commands & Tools Reference
-
-### 🗣️ Voice Commands
-- "Switch project to [Name]"
-- "Create a new project called [Name]"
-- "Turn on the [Room] light"
-- "Make the light [Color]"
-- "Pause audio" / "Stop audio"
-
-### 🧊 3D CAD
-- **Prompt**: "Create a 3D model of a hex bolt."
-- **Iterate**: "Make the head thinner." (Requires previous context)
-- **Files**: Saves to `projects/[ProjectName]/output.stl`.
-
-### 🌐 Web Agent
-- **Prompt**: "Go to Amazon and find a USB-C cable under $10."
-- **Note**: The agent will auto-scroll, click, and type. Do not interfere with the browser window while it runs.
