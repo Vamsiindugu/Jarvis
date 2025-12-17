@@ -7,7 +7,7 @@ import CadWindow from './components/CadWindow';
 import BrowserWindow from './components/BrowserWindow';
 import ChatModule from './components/ChatModule';
 import ToolsModule from './components/ToolsModule';
-import { Mic, MicOff, Settings, X, Minus, Power, Video, VideoOff, Layout, Hand } from 'lucide-react';
+import { Mic, MicOff, Settings, X, Minus, Power, Video, VideoOff, Layout, Hand, Printer, Clock } from 'lucide-react';
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 // MemoryPrompt removed - memory is now actively saved to project
 import ConfirmationPopup from './components/ConfirmationPopup';
@@ -58,6 +58,11 @@ function App() {
     const [kasaDevices, setKasaDevices] = useState([]);
     const [showKasaWindow, setShowKasaWindow] = useState(false);
     const [showPrinterWindow, setShowPrinterWindow] = useState(false);
+
+    // Printing workflow status (for top toolbar display)
+    const [slicingStatus, setSlicingStatus] = useState({ active: false, percent: 0, message: '' });
+    const [activePrintStatus, setActivePrintStatus] = useState(null); // {printer, progress_percent, time_elapsed, state}
+    const [printerCount, setPrinterCount] = useState(0); // Count of connected printers
 
 
     // RESTORED STATE
@@ -426,6 +431,39 @@ function App() {
             addMessage('System', `Switched to project: ${data.project}`);
         });
 
+        // Track printer count for toolbar display
+        socket.on('printer_list', (list) => {
+            console.log('[PRINTERS] Count:', list.length);
+            setPrinterCount(list.length);
+        });
+
+        // Slicing progress for top toolbar
+        socket.on('slicing_progress', (data) => {
+            console.log('[SLICING] Progress:', data);
+            setSlicingStatus({
+                active: data.percent < 100,
+                percent: data.percent,
+                message: data.message
+            });
+        });
+
+        // Print status for top toolbar - track active prints
+        socket.on('print_status_update', (data) => {
+            console.log('[PRINT STATUS]', data);
+            // Only show in toolbar if actively printing
+            if (data.state && data.state.toLowerCase().includes('print')) {
+                setActivePrintStatus({
+                    printer: data.printer,
+                    progress_percent: data.progress_percent,
+                    time_elapsed: data.time_elapsed,
+                    state: data.state
+                });
+            } else if (data.state && (data.state.toLowerCase() === 'idle' || data.state.toLowerCase() === 'standby' || data.state.toLowerCase() === 'complete')) {
+                // Clear if print finished or idle
+                setActivePrintStatus(null);
+            }
+        });
+
 
 
         // Get Audio Devices
@@ -487,6 +525,9 @@ function App() {
             socket.off('transcription');
             socket.off('tool_confirmation_request');
             socket.off('kasa_devices');
+            socket.off('printer_list');
+            socket.off('slicing_progress');
+            socket.off('print_status_update');
 
             stopMicVisualizer();
             stopVideo();
@@ -1170,6 +1211,20 @@ function App() {
                     {isVideoOn && (
                         <div className="text-[10px] text-green-500 border border-green-900 px-1 rounded ml-2">
                             FPS: {fps}
+                        </div>
+                    )}
+                    {/* Connected Printers Count */}
+                    {printerCount > 0 && (
+                        <div className="flex items-center gap-1.5 text-[10px] text-green-400 border border-green-500/30 bg-green-500/10 px-2 py-0.5 rounded ml-2">
+                            <Printer size={10} className="text-green-400" />
+                            <span>{printerCount} Printer{printerCount !== 1 ? 's' : ''}</span>
+                        </div>
+                    )}
+                    {/* Connected Smart Devices Count */}
+                    {kasaDevices.length > 0 && (
+                        <div className="flex items-center gap-1.5 text-[10px] text-yellow-400 border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 rounded ml-2">
+                            <span>💡</span>
+                            <span>{kasaDevices.length} Device{kasaDevices.length !== 1 ? 's' : ''}</span>
                         </div>
                     )}
                 </div>

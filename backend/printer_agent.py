@@ -574,9 +574,16 @@ class PrinterAgent:
             return None
         stl_path = resolved_path
         
-        # Default output path
+        # Default output path - save to project's gcode folder if root_path is provided
         if not output_path:
-            output_path = stl_path.rsplit('.', 1)[0] + ".gcode"
+            if root_path:
+                gcode_dir = os.path.join(root_path, "gcode")
+                os.makedirs(gcode_dir, exist_ok=True)
+                basename = os.path.splitext(os.path.basename(stl_path))[0]
+                output_path = os.path.join(gcode_dir, f"{basename}.gcode")
+                print(f"[PRINTER] G-code output: {output_path}")
+            else:
+                output_path = stl_path.rsplit('.', 1)[0] + ".gcode"
         
         # Build command
         is_orca = "OrcaSlicer" in self.slicer_path
@@ -652,12 +659,19 @@ class PrinterAgent:
         print(f"[PRINTER] Command: {' '.join(cmd)}")
         
         try:
+            # Notify slicing start
+            if progress_callback:
+                await progress_callback(5, "Starting slicer...")
+            
             # Use subprocess_exec to read stdout in real-time
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
+            
+            # Track progress
+            last_progress = 5
             
             # Read stdout line by line
             while True:
@@ -667,6 +681,8 @@ class PrinterAgent:
                 
                 line_str = line.decode().strip()
                 if line_str:
+                    print(f"[SLICER OUTPUT] {line_str}")  # Debug logging
+                    
                     # PrusaSlicer/Orca progress output looks like "15% => Processing..." or just "Processing... 15%"
                     # We look for simple percentages
                     if "%" in line_str:
@@ -677,11 +693,17 @@ class PrinterAgent:
                             for p in parts:
                                 if p.endswith("%"):
                                     pct = int(p[:-1])
+                                    last_progress = pct
                                     if progress_callback:
                                         await progress_callback(pct, line_str)
                                     break
                         except:
                             pass
+                    else:
+                        # Send activity updates even without percentage
+                        if progress_callback and last_progress < 90:
+                            last_progress = min(last_progress + 5, 90)
+                            await progress_callback(last_progress, line_str)
             
             await process.wait()
             

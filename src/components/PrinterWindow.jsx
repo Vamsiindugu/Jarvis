@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, RefreshCw, Printer, Thermometer, Clock, FileText, CheckCircle, AlertTriangle } from 'lucide-react';
+import { X, RefreshCw, Printer, Thermometer, Clock, FileText, CheckCircle, AlertTriangle, ExternalLink } from 'lucide-react';
+
+const { shell } = window.require('electron');
 
 const PrinterWindow = ({
     socket,
@@ -215,11 +217,22 @@ const PrinterWindow = ({
                                         <div className="font-bold text-sm text-green-50">{printer.name}</div>
                                         <div className="text-[10px] text-white/40 uppercase tracking-wider">{printer.host}:{printer.port} • {printer.printer_type}</div>
                                     </div>
-                                    {printer.status && (
-                                        <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/5 ${getStatusColor(printer.status.state)}`}>
-                                            {printer.status.state?.toUpperCase() || "IDLE"}
-                                        </div>
-                                    )}
+                                    <div className="flex items-center gap-2">
+                                        {/* Open Interface Button */}
+                                        <button
+                                            onClick={() => shell.openExternal(`http://${printer.host}`)}
+                                            className="flex items-center gap-1 text-[10px] text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 px-2 py-0.5 rounded transition-colors"
+                                            title="Open printer web interface"
+                                        >
+                                            <ExternalLink size={10} />
+                                            <span>Open</span>
+                                        </button>
+                                        {printer.status && (
+                                            <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/5 ${getStatusColor(printer.status.state)}`}>
+                                                {printer.status.state?.toUpperCase() || "IDLE"}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* Camera Feed */}

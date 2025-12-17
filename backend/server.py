@@ -528,9 +528,28 @@ async def iterate_cad(sid, data):
 @sio.event
 async def discover_printers(sid):
     print("Received discover_printers request")
+    
+    # If audio_loop isn't ready yet, return saved printers from settings
     if not audio_loop or not audio_loop.printer_agent:
-        await sio.emit('error', {'msg': "Printer Agent not available"})
-        return
+        saved_printers = SETTINGS.get("printers", [])
+        if saved_printers:
+            # Convert saved printers to the expected format
+            printer_list = []
+            for p in saved_printers:
+                printer_list.append({
+                    "name": p.get("name", p["host"]),
+                    "host": p["host"],
+                    "port": p.get("port", 80),
+                    "printer_type": p.get("type", "unknown"),
+                    "camera_url": p.get("camera_url")
+                })
+            print(f"[SERVER] Returning {len(printer_list)} saved printers (audio_loop not ready)")
+            await sio.emit('printer_list', printer_list)
+            return
+        else:
+            await sio.emit('printer_list', [])
+            await sio.emit('status', {'msg': "Connect to A.D.A to enable printer discovery"})
+            return
         
     try:
         printers = await audio_loop.printer_agent.discover_printers()
