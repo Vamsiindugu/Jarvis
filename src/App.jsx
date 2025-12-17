@@ -9,7 +9,7 @@ import ChatModule from './components/ChatModule';
 import ToolsModule from './components/ToolsModule';
 import { Mic, MicOff, Settings, X, Minus, Power, Video, VideoOff, Layout, Hand } from 'lucide-react';
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
-import MemoryPrompt from './components/MemoryPrompt';
+// MemoryPrompt removed - memory is now actively saved to project
 import ConfirmationPopup from './components/ConfirmationPopup';
 import AuthLock from './components/AuthLock';
 import KasaWindow from './components/KasaWindow';
@@ -51,7 +51,7 @@ function App() {
     const [cadData, setCadData] = useState(null);
     const [cadThoughts, setCadThoughts] = useState(''); // Streaming AI thoughts
     const [browserData, setBrowserData] = useState({ image: null, logs: [] });
-    const [showMemoryPrompt, setShowMemoryPrompt] = useState(false);
+    // showMemoryPrompt removed - memory is now actively saved to project
     const [confirmationRequest, setConfirmationRequest] = useState(null); // { id, tool, args }
     const [kasaDevices, setKasaDevices] = useState([]);
     const [showKasaWindow, setShowKasaWindow] = useState(false);
@@ -864,22 +864,25 @@ function App() {
     const handleMinimize = () => ipcRenderer.send('window-minimize');
     const handleMaximize = () => ipcRenderer.send('window-maximize');
 
-    // Intercept Close
+    // Close Application - memory is now actively saved to project, no prompt needed
     const handleCloseRequest = () => {
-        setShowMemoryPrompt(true);
-    };
+        // Emit shutdown signal to backend for graceful shutdown
+        // Use volatile emit with timeout fallback to ensure window closes even if server is unresponsive
+        const closeWindow = () => ipcRenderer.send('window-close');
 
-    const handleConfirmSave = (filename) => {
-        // Send messages to backend
-        socket.emit('save_memory', { messages: messages, filename: filename });
-        // Give it a short delay to emit before closing
-        setTimeout(() => {
-            ipcRenderer.send('window-close');
-        }, 500);
-    };
-
-    const handleDenySave = () => {
-        ipcRenderer.send('window-close');
+        if (socket.connected) {
+            console.log('[APP] Sending shutdown signal to backend...');
+            socket.emit('shutdown', {}, (ack) => {
+                // This callback may not be called if server uses os._exit
+                console.log('[APP] Shutdown acknowledged');
+                closeWindow();
+            });
+            // Fallback: close after 500ms if ack doesn't come back
+            setTimeout(closeWindow, 500);
+        } else {
+            // Socket not connected, just close
+            closeWindow();
+        }
     };
 
     const handleFileUpload = (e) => {
@@ -905,9 +908,7 @@ function App() {
         reader.readAsText(file);
     };
 
-    const handleCancelClose = () => {
-        setShowMemoryPrompt(false);
-    };
+    // handleCancelClose removed - no longer using memory prompt
 
     const handleConfirmTool = () => {
         if (confirmationRequest) {
@@ -1348,14 +1349,7 @@ function App() {
                     />
                 )}
 
-                {/* Memory Prompt Modal */}
-                {showMemoryPrompt && (
-                    <MemoryPrompt
-                        onConfirm={handleConfirmSave}
-                        onDeny={handleDenySave}
-                        onCancel={handleCancelClose}
-                    />
-                )}
+                {/* Memory Prompt removed - memory is now actively saved to project */}
 
                 {/* Tool Confirmation Modal */}
                 <ConfirmationPopup

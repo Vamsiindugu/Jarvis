@@ -290,6 +290,37 @@ async def confirm_tool(sid, data):
         print("Audio loop not active, cannot resolve confirmation.")
 
 @sio.event
+async def shutdown(sid, data=None):
+    """Gracefully shutdown the server when the application closes."""
+    global audio_loop, loop_task, authenticator
+    
+    print("[SERVER] ========================================")
+    print("[SERVER] SHUTDOWN SIGNAL RECEIVED FROM FRONTEND")
+    print("[SERVER] ========================================")
+    
+    # Stop audio loop
+    if audio_loop:
+        print("[SERVER] Stopping Audio Loop...")
+        audio_loop.stop()
+        audio_loop = None
+    
+    # Cancel the loop task if running
+    if loop_task and not loop_task.done():
+        print("[SERVER] Cancelling loop task...")
+        loop_task.cancel()
+        loop_task = None
+    
+    # Stop authenticator if running
+    if authenticator:
+        print("[SERVER] Stopping Authenticator...")
+        authenticator.stop()
+    
+    print("[SERVER] Graceful shutdown complete. Terminating process...")
+    
+    # Force exit immediately - os._exit bypasses cleanup but ensures termination
+    os._exit(0)
+
+@sio.event
 async def user_input(sid, data):
     text = data.get('text')
     print(f"[SERVER DEBUG] User input received: '{text}'")
