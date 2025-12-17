@@ -110,8 +110,17 @@ The main backend needs to know **exactly** where the CAD environment's python ex
 
 ### 3. Frontend Setup
 ```bash
+```bash
 npm install
 ```
+
+### 4. 🔐 Face Authentication Setup
+To use the secure voice features, ADA needs to know what you look like.
+
+1. Take a clear photo of your face (or use an existing one).
+2. Rename the file to `reference.jpg`.
+3. Drag and drop this file into the `ada_v2/backend` folder.
+4. (Optional) You can toggle this feature on/off in `settings.json` by changing `"face_auth_enabled": true/false`.
 
 ---
 
@@ -147,76 +156,3 @@ The system creates a `settings.json` file on first run. You can modify this to c
 - **Prompt**: "Go to Amazon and find a USB-C cable under $10."
 - **Note**: The agent will auto-scroll, click, and type. Do not interfere with the browser window while it runs.
 
----
-
-## 🧠 Under the Hood: System Architecture
-
-### 1. Communication (The Brain)
-**Native Audio Streaming (Low Latency)**
-- **Direct WebSocket**: Uses `google.genai aio.live.connect` in `backend/ada.py` to establish a persistent WebSocket link.
-- **Bypass Legacy Pipelines**: Audio PCM chunks are sent directly to **Gemini 2.5 Flash Native Audio**, bypassing traditional Transcribe-Think-TTS pipelines for ultra-low latency.
-- **Interruption Handling**: The `receive_audio` loop actively manages the stream. If you speak while Ada is talking, the model halts generation instantly, mimicking natural conversation flow.
-
-**Personality Injection**
-- System instruction in `backend/ada.py` enforces a specific persona: "Witty," "Charming," addresses you as "Sir," and uses the "Kore" voice preset.
-
-**Resilient Connection Logic**
-- **Auto-Reconnect with Context**: If the connection drops, the system fetches the recent `chat_history.jsonl` via `ProjectManager` and feeds it back to the model so it "remembers" the context.
-
-**Dual-Stream Visualization**
-- **Input**: `TopAudioBar.jsx` uses the browser’s `AudioContext` to visualize raw microphone input.
-- **Output**: `Visualizer.jsx` reacts to the AI’s audio frequency data with a breathing/pulsing circle effect that scales based on amplitude.
-
-### 2. Hand Tracking & Interface (The Body)
-**"Minority Report" Gesture Control**
-- **MediaPipe Integration**: `App.jsx` initializes `HandLandmarker` on the CPU to avoid GPU context conflicts.
-- **Coordinate Mapping**: Maps the Index Finger Tip (Landmark 8) to screen coordinates with a custom sensitivity factor (default 2.0x), allowing you to reach corners without exaggerated movement.
-- **Physics-Based Smoothing**: Implements a Linear Interpolation (Lerp) factor of 0.2 to eliminate jitter and make the cursor feel "heavy" and precise.
-- **Magnetic Button Snapping**: The cursor physically "snaps" to the center of interactive elements (buttons) when within 50px (`SNAP_THRESHOLD`), applying a glowing CSS effect.
-
-**Modular Spatial UI (The "Fist" Gesture)**
-- **Fist Detection**: Checks if finger tips are closer to the wrist than their respective knuckles.
-- **Spatial Grabbing**: If a fist is detected while hovering over a window (CAD, Browser, Chat), it locks onto that element allow you to physically grab and rearrange UI components in 3D space.
-
-### 3. CAD Generation (The Engineer)
-**Parametric Design with "Thinking" Model**
-- **Model Switching**: `backend/cad_agent.py` switches to **Gemini 3 Pro Preview** specifically for this task to utilize "Thinking" (Chain of Thought) capabilities.
-- **Parametric Scripting**: Generates Python scripts using the `build123d` library ensuring mathematically accurate models.
-
-**Isolated Execution Environment**
-- Code is executed locally using a specific Conda environment (`/opt/anaconda3/envs/ada_cad_env`) to manage dependencies (like numpy versions) separately from the main backend.
-
-**The "Reflexion" Loop (Self-Healing)**
-- If the generated Python script crashes, the agent captures the `stderr` (error), feeds it back to Gemini with the prompt "Please fix the code...", and retries automatically up to 3 times.
-
-**Real-Time "Thinking" Stream**
-- The backend streams the model's internal "Thought" process to the frontend (`CadWindow.jsx`), displaying a Matrix-style scrolling log of how the AI is solving the geometry problem.
-
-### 4. Browser Control (The Knowledge)
-**Computer Use Agent**
-- Uses **Gemini 2.5 Computer Use Preview** in `backend/web_agent.py`.
-- **Full Action Suite**: Supports `click_at`, `type_text_at` (with auto-clearing via Ctrl+A), `scroll`, and `drag_and_drop`.
-- **Live Feedback**: Streams screenshots via Playwright after every action to `BrowserWindow.jsx` along with a scrolling action log.
-- **Safety**: Automatically detects and acknowledges "safety_decision" flags from the API to maintain agent flow.
-
-### 5. Smart Home Control (The Physical World)
-**Cloud-Free Discovery**
-- Uses `python-kasa` in `backend/kasa_agent.py` to discover devices on the local LAN via broadcast (No Cloud/Internet required).
-- **Intelligent Resolution**: Resolves targets by Alias ("Bedroom Light") or IP.
-- **Natural Language Color Mapping**: Maps names like "cyan", "warm", "pink" to specific HSV tuples for complex mood lighting.
-
-### 6. Project & File Management (The Organizer)
-**Dynamic Project System**
-- **Auto-Creation**: Automatically creates detailed project folders in `projects/` when work begins in the temp buffer.
-- **Context Injection**: When switching projects, the manager reads all compatible text files (.py, .js, .md) and injects them into the AI's context window.
-- **Chat Persistence**: Every message is logged to `chat_history.jsonl` within the specific project folder.
-
-### 7. Security & Protocol (The Gatekeeper)
-**Face Authentication Lock**
-- **Local Vision**: `backend/authenticator.py` runs `face_recognition` and `dlib` in a separate thread.
-- **Hard Lock**: The audio loop checks `authenticator.authenticated`; if false, voice commands are completely ignored.
-- **Human-in-the-Loop**: Sensitive tools (`write_file`, `run_web_agent`) trigger a `ConfirmationPopup.jsx` on the frontend that creates a blocking wait on the backend until approved.
-
-### 8. Long Term Memory (The Soul)
-- **Session Serialization**: Conversation logs are saved to `long_term_memory/` with timestamps.
-- **Memory Injection**: The `upload_memory` event allows uploading previous logs, treating them as "System Notifications" to restore the AI's memory of past events/rules.
