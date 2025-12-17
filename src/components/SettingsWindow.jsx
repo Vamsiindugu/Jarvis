@@ -25,6 +25,8 @@ const SettingsWindow = ({
     setSelectedDeviceId,
     cursorSensitivity,
     setCursorSensitivity,
+    isCameraFlipped,
+    setIsCameraFlipped,
     handleFileUpload,
     onClose
 }) => {
@@ -72,6 +74,12 @@ const SettingsWindow = ({
         setFaceAuthEnabled(newVal); // Optimistic Update
         localStorage.setItem('face_auth_enabled', newVal);
         socket.emit('update_settings', { face_auth_enabled: newVal });
+    };
+
+    const toggleCameraFlip = () => {
+        const newVal = !isCameraFlipped;
+        setIsCameraFlipped(newVal);
+        socket.emit('update_settings', { camera_flipped: newVal });
     };
 
     return (
@@ -130,6 +138,22 @@ const SettingsWindow = ({
                     onChange={(e) => setCursorSensitivity(parseFloat(e.target.value))}
                     className="w-full accent-cyan-400 cursor-pointer h-1 bg-gray-800 rounded-lg appearance-none"
                 />
+            </div>
+
+            {/* Gesture Control Section */}
+            <div className="mb-6">
+                <h3 className="text-cyan-400 font-bold mb-3 text-xs uppercase tracking-wider opacity-80">Gesture Control</h3>
+                <div className="flex items-center justify-between text-xs bg-gray-900/50 p-2 rounded border border-cyan-900/30">
+                    <span className="text-cyan-100/80">Flip Camera Horizontal</span>
+                    <button
+                        onClick={toggleCameraFlip}
+                        className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${isCameraFlipped ? 'bg-cyan-500/80' : 'bg-gray-700'}`}
+                    >
+                        <div
+                            className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200 ${isCameraFlipped ? 'translate-x-4' : 'translate-x-0'}`}
+                        />
+                    </button>
+                </div>
             </div>
 
             {/* Tool Permissions Section */}

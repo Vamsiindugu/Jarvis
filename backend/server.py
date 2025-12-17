@@ -40,7 +40,8 @@ DEFAULT_SETTINGS = {
         "switch_project": True,
         "list_projects": True
     },
-    "printers": [] # List of {host, port, name, type}
+    "printers": [], # List of {host, port, name, type}
+    "camera_flipped": False # Invert cursor horizontal direction
 }
 
 SETTINGS = DEFAULT_SETTINGS.copy()
@@ -526,6 +527,68 @@ async def iterate_cad(sid, data):
         await sio.emit('error', {'msg': f"Iteration Error: {str(e)}"})
 
 @sio.event
+async def generate_cad(sid, data):
+    # data: { prompt: "make a cube" }
+    prompt = data.get('prompt')
+    print(f"Received generate_cad request: '{prompt}'")
+    
+    if not audio_loop or not audio_loop.cad_agent:
+        await sio.emit('error', {'msg': "CAD Agent not available"})
+        return
+
+    try:
+        await sio.emit('status', {'msg': 'Generating new design...'})
+        await sio.emit('cad_status', {'status': 'generating'})
+        
+        # Use generate_prototype based on prompt
+        # We might need to ensure cad_agent is ready or reset context?
+        # Assuming generate_prototype handles new context.
+        result = await audio_loop.cad_agent.generate_prototype(prompt)
+        
+        if result:
+            info = f"{len(result.get('data', ''))} bytes (STL)"
+            print(f"Sending newly generated CAD data: {info}")
+            await sio.emit('cad_data', result)
+            await sio.emit('status', {'msg': 'Design generated'})
+        else:
+            await sio.emit('error', {'msg': 'Failed to generate design'})
+            
+    except Exception as e:
+        print(f"Error generating CAD: {e}")
+        await sio.emit('error', {'msg': f"Generation Error: {str(e)}"})
+
+@sio.event
+async def prompt_web_agent(sid, data):
+    # data: { prompt: "find xyz" }
+    prompt = data.get('prompt')
+    print(f"Received web agent prompt: '{prompt}'")
+    
+    if not audio_loop or not audio_loop.web_agent:
+        await sio.emit('error', {'msg': "Web Agent not available"})
+        return
+
+    try:
+        await sio.emit('status', {'msg': 'Web Agent running...'})
+        
+        # We assume web_agent has a run method or similar.
+        # This might block the loop if not strictly async or offloaded.
+        # Ideally web_agent.run is async.
+        # And it should emit 'browser_snap' and logs automatically via hooks if setup.
+        
+        # We might need to launch this as a task if it's long running?
+        # asyncio.create_task(audio_loop.web_agent.run(prompt))
+        # But we want to catch errors here.
+        
+        # Based on typical agent design, run() is the entry point.
+        await audio_loop.web_agent.run(prompt)
+        
+        await sio.emit('status', {'msg': 'Web Agent finished'})
+        
+    except Exception as e:
+        print(f"Error running Web Agent: {e}")
+        await sio.emit('error', {'msg': f"Web Agent Error: {str(e)}"})
+
+@sio.event
 async def discover_printers(sid):
     print("Received discover_printers request")
     
@@ -656,6 +719,33 @@ async def print_stl(sid, data):
              
         await sio.emit('status', {'msg': f"Preparing print for {printer_name}..."})
         
+        # Get current project path for resolution
+        current_project_path = None
+        if audio_loop and audio_loop.project_manager:
+            current_project_path = str(audio_loop.project_manager.get_current_project_path())
+            print(f"[SERVER DEBUG] Using project path: {current_project_path}")
+
+        # Resolve STL path before slicing so we can preview it
+        resolved_stl = audio_loop.printer_agent._resolve_file_path(stl_path, current_project_path)
+        
+        if resolved_stl and os.path.exists(resolved_stl):
+            # Open the STL in the CAD module for preview
+            try:
+                import base64
+                with open(resolved_stl, 'rb') as f:
+                    stl_data = f.read()
+                stl_b64 = base64.b64encode(stl_data).decode('utf-8')
+                stl_filename = os.path.basename(resolved_stl)
+                
+                print(f"[SERVER] Opening STL in CAD module: {stl_filename}")
+                await sio.emit('cad_data', {
+                    'format': 'stl',
+                    'data': stl_b64,
+                    'filename': stl_filename
+                })
+            except Exception as e:
+                print(f"[SERVER] Warning: Could not preview STL: {e}")
+        
         # Progress Callback
         async def on_slicing_progress(percent, message):
             await sio.emit('slicing_progress', {
@@ -665,12 +755,6 @@ async def print_stl(sid, data):
             })
             if percent < 100:
                  await sio.emit('status', {'msg': f"Slicing: {percent}%"})
-        
-        # Get current project path for resolution
-        current_project_path = None
-        if audio_loop and audio_loop.project_manager:
-            current_project_path = str(audio_loop.project_manager.get_current_project_path())
-            print(f"[SERVER DEBUG] Using project path: {current_project_path}")
 
         result = await audio_loop.printer_agent.print_stl(
             stl_path, 
@@ -762,6 +846,10 @@ async def update_settings(sid, data):
              # Stop auth loop if running?
              if authenticator:
                  authenticator.stop() 
+
+    if "camera_flipped" in data:
+        SETTINGS["camera_flipped"] = data["camera_flipped"]
+        print(f"[SERVER] Camera flip set to: {data['camera_flipped']}")
 
     save_settings()
     # Broadcast new full settings

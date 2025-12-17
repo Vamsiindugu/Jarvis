@@ -69,6 +69,24 @@ const CadWindow = ({ data, thoughts, retryInfo = {}, onClose, socket }) => {
         }
     }, [data]);
 
+    const handleGenerate = () => {
+        if (!prompt.trim()) return;
+        setIsSending(true);
+        if (socket) {
+            socket.emit('generate_cad', { prompt });
+        } else {
+            console.error("Socket not available in CadWindow");
+        }
+        setPrompt("");
+        // NOTE: We don't clear isSending immediately here if we want to show loading state until data arrives.
+        // But for UI responsiveness we might want to just show global loading or similar.
+        // For now, let's timeout or rely on parent updates.
+        // Actually, let's just keep isSending true until we get an update? 
+        // But we don't listen to socket here.
+        // Let's reset it after a short delay so user knows it was sent.
+        setTimeout(() => setIsSending(false), 2000);
+    };
+
     const handleIterate = () => {
         if (!prompt.trim()) return;
         setIsSending(true);
@@ -117,31 +135,43 @@ const CadWindow = ({ data, thoughts, retryInfo = {}, onClose, socket }) => {
                 </button>
             </div>
 
-            {/* Iteration Overlay */}
-            {isIterating && (
-                <div className="absolute inset-0 z-20 bg-black/80 flex items-center justify-center p-4">
+            {/* Iteration / Generation Overlay */}
+            {/* Show if iterating OR if no data exists (and not loading) */}
+            {(isIterating || (!data && data?.format !== 'loading')) && (
+                <div className={`absolute inset-0 z-20 ${!data ? 'bg-gray-900' : 'bg-black/80'} flex items-center justify-center p-4`}>
                     <div className="bg-gray-800 border border-cyan-500/50 rounded p-4 w-full max-w-sm pointer-events-auto shadow-[0_0_20px_rgba(6,182,212,0.2)]">
-                        <h4 className="text-cyan-400 text-sm mb-2 font-mono">Refine Design</h4>
+                        <h4 className="text-cyan-400 text-sm mb-2 font-mono">
+                            {!data ? "New Design" : "Refine Design"}
+                        </h4>
                         <textarea
                             value={prompt}
                             onChange={(e) => setPrompt(e.target.value)}
-                            placeholder="e.g., Make the wheels bigger..."
-                            className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white text-sm mb-3 focus:outline-none focus:border-cyan-500 h-24"
+                            placeholder={!data ? "Describe what you want to create..." : "e.g., Make the wheels bigger..."}
+                            className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white text-sm mb-3 focus:outline-none focus:border-cyan-500 h-24 resize-none"
                             autoFocus
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    !data ? handleGenerate() : handleIterate();
+                                }
+                            }}
                         />
                         <div className="flex justify-end gap-2">
+                            {/* Only show cancel if we have data to go back to */}
+                            {data && (
+                                <button
+                                    onClick={() => setIsIterating(false)}
+                                    className="text-gray-400 text-xs hover:text-white px-2 py-1"
+                                >
+                                    Cancel
+                                </button>
+                            )}
                             <button
-                                onClick={() => setIsIterating(false)}
-                                className="text-gray-400 text-xs hover:text-white px-2 py-1"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleIterate}
+                                onClick={!data ? handleGenerate : handleIterate}
                                 disabled={isSending}
                                 className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs px-3 py-1 rounded"
                             >
-                                {isSending ? "Sending..." : "Update"}
+                                {isSending ? "Generating..." : (!data ? "Generate" : "Update")}
                             </button>
                         </div>
                     </div>

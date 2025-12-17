@@ -30,5 +30,6 @@
             "port": 7125,
             "type": "moonraker"
         }
-    ]
+    ],
+    "camera_flipped": true
 }

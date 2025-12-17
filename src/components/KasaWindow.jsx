@@ -8,7 +8,8 @@ const KasaWindow = ({
     activeDragElement,
     setActiveDragElement,
     devices,
-    onMouseDown
+    onMouseDown,
+    zIndex = 40
 }) => {
     const [isThinking, setIsThinking] = useState(false);
     const [loadingDevices, setLoadingDevices] = useState({}); // { ip: true/false }
@@ -83,11 +84,11 @@ const KasaWindow = ({
                 width: '320px',
                 minHeight: '200px',
                 transform: 'translate(-50%, -50%)',
-                zIndex: 40
+                zIndex: zIndex
             }}
         >
             {/* Header */}
-            <div className="flex items-center justify-between pb-2 border-b border-white/10 mb-2 cursor-grab active:cursor-grabbing">
+            <div data-drag-handle className="flex items-center justify-between pb-2 border-b border-white/10 mb-2 cursor-grab active:cursor-grabbing">
                 <div className="flex items-center gap-2">
                     <div className={`w-2 h-2 rounded-full ${devices.length > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
                     <h3 className="font-bold text-cyan-400 tracking-wider text-sm">SMART CONTROL</h3>

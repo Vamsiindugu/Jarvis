@@ -9,7 +9,8 @@ const PrinterWindow = ({
     onClose,
     activeDragElement,
     setActiveDragElement,
-    onMouseDown
+    onMouseDown,
+    zIndex = 40
 }) => {
     const [isDiscovering, setIsDiscovering] = useState(false);
     const [printers, setPrinters] = useState([]); // [{ name, host, port, printer_type, status: {...}, camera_url: ... }]
@@ -85,13 +86,13 @@ const PrinterWindow = ({
                 left: position.x,
                 top: position.y,
                 transform: 'translate(-50%, -50%)',
-                width: '400px',
-                zIndex: activeDragElement === 'printer-window' ? 50 : 10
+                width: '380px',
+                zIndex: zIndex
             }}
             className="pointer-events-auto backdrop-blur-xl bg-black/80 border border-green-500/30 rounded-2xl shadow-[0_0_30px_rgba(74,222,128,0.1)] overflow-hidden flex flex-col"
         >
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-white/10 bg-white/5 cursor-grab active:cursor-grabbing">
+            <div data-drag-handle className="flex items-center justify-between p-4 border-b border-white/10 bg-white/5 cursor-grab active:cursor-grabbing">
                 <div className="flex items-center gap-2">
                     <Printer size={16} className="text-green-400" />
                     <span className="text-xs font-bold tracking-widest text-green-100 uppercase">3D Printers</span>

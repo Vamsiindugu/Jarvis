@@ -58,6 +58,8 @@ function App() {
     const [kasaDevices, setKasaDevices] = useState([]);
     const [showKasaWindow, setShowKasaWindow] = useState(false);
     const [showPrinterWindow, setShowPrinterWindow] = useState(false);
+    const [showCadWindow, setShowCadWindow] = useState(false);
+    const [showBrowserWindow, setShowBrowserWindow] = useState(false);
 
     // Printing workflow status (for top toolbar display)
     const [slicingStatus, setSlicingStatus] = useState({ active: false, percent: 0, message: '' });
@@ -89,26 +91,33 @@ function App() {
     });
 
     const [elementSizes, setElementSizes] = useState({
-        visualizer: { w: 600, h: 400 },
-        chat: { w: 600, h: 250 },
+        visualizer: { w: 550, h: 350 },
+        chat: { w: 550, h: 220 },
         tools: { w: 500, h: 80 }, // Approx
-        cad: { w: 500, h: 500 },
-        browser: { w: 600, h: 450 },
+        cad: { w: 400, h: 400 },
+        browser: { w: 550, h: 380 },
         video: { w: 320, h: 180 },
-        kasa: { w: 300, h: 400 }, // Approx
-        printer: { w: 400, h: 400 } // Approx
+        kasa: { w: 300, h: 380 }, // Approx
+        printer: { w: 380, h: 380 } // Approx
     });
     const [activeDragElement, setActiveDragElement] = useState(null);
+
+    // Z-Index Stacking Order (last element = highest z-index)
+    const [zIndexOrder, setZIndexOrder] = useState([
+        'visualizer', 'chat', 'tools', 'video', 'cad', 'browser', 'kasa', 'printer'
+    ]);
 
     // Hand Control State
     const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
     const [isPinching, setIsPinching] = useState(false);
     const [isHandTrackingEnabled, setIsHandTrackingEnabled] = useState(false); // DEFAULT OFF
     const [cursorSensitivity, setCursorSensitivity] = useState(2.0);
+    const [isCameraFlipped, setIsCameraFlipped] = useState(false); // Gesture control camera flip
 
     // Refs for Loop Access (Avoiding Closure Staleness)
     const isHandTrackingEnabledRef = useRef(false); // DEFAULT OFF
     const cursorSensitivityRef = useRef(2.0);
+    const isCameraFlippedRef = useRef(false);
     const handLandmarkerRef = useRef(null);
     const cursorTrailRef = useRef([]); // Stores last N positions for trail
     const [ripples, setRipples] = useState([]); // Visual ripples on click
@@ -134,6 +143,7 @@ function App() {
     const activeDragElementRef = useRef(null);
     const lastActiveDragElementRef = useRef(null);
     const lastCursorPosRef = useRef({ x: 0, y: 0 });
+    const lastWristPosRef = useRef({ x: 0, y: 0 }); // For stable fist gesture tracking
 
     // Smoothing and Snapping Refs
     const smoothedCursorPosRef = useRef({ x: 0, y: 0 });
@@ -144,13 +154,14 @@ function App() {
     const isDraggingRef = useRef(false);
 
     // Update refs when state changes
-    // Update refs when state changes
     useEffect(() => {
         isModularModeRef.current = isModularMode;
         elementPositionsRef.current = elementPositions;
         isHandTrackingEnabledRef.current = isHandTrackingEnabled;
         cursorSensitivityRef.current = cursorSensitivity;
-    }, [isModularMode, elementPositions, isHandTrackingEnabled, cursorSensitivity]);
+        isCameraFlippedRef.current = isCameraFlipped;
+        console.log("[Ref Sync] Camera flipped ref updated to:", isCameraFlipped);
+    }, [isModularMode, elementPositions, isHandTrackingEnabled, cursorSensitivity, isCameraFlipped]);
 
     // Centering Logic (Startup & Resize)
     useEffect(() => {
@@ -229,6 +240,34 @@ function App() {
         return () => window.removeEventListener('resize', centerElements);
     }, []);
 
+    // Utility: Clamp position to viewport so component stays fully visible
+    const clampToViewport = (pos, size) => {
+        const margin = 10;
+        const topBarHeight = 60;
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+
+        return {
+            x: Math.max(size.w / 2 + margin, Math.min(width - size.w / 2 - margin, pos.x)),
+            y: Math.max(size.h / 2 + margin + topBarHeight, Math.min(height - size.h / 2 - margin, pos.y))
+        };
+    };
+
+    // Utility: Get z-index for an element based on stacking order
+    const getZIndex = (id) => {
+        const baseZ = 30; // Above background elements
+        const index = zIndexOrder.indexOf(id);
+        return baseZ + (index >= 0 ? index : 0);
+    };
+
+    // Utility: Bring element to front (highest z-index)
+    const bringToFront = (id) => {
+        setZIndexOrder(prev => {
+            const filtered = prev.filter(el => el !== id);
+            return [...filtered, id]; // Move to end = highest z-index
+        });
+    };
+
     // Ref to track if model has been auto-connected (prevents duplicate connections)
     const hasAutoConnectedRef = useRef(false);
 
@@ -298,24 +337,28 @@ function App() {
         });
 
         socket.on('settings', (settings) => {
+            console.log("[Settings] Received:", settings);
             if (settings && typeof settings.face_auth_enabled !== 'undefined') {
                 setFaceAuthEnabled(settings.face_auth_enabled);
                 localStorage.setItem('face_auth_enabled', settings.face_auth_enabled);
-
-                // If specific logic needed for immediate lock/unlock trigger
-                // But handleAuthStatus usually covers the 'Lock' part if auth is invalid.
-                // This syncs the storage.
+            }
+            if (typeof settings.camera_flipped !== 'undefined') {
+                console.log("[Settings] Camera flip set to:", settings.camera_flipped);
+                setIsCameraFlipped(settings.camera_flipped);
             }
         });
         socket.on('cad_data', (data) => {
             console.log("Received CAD Data:", data);
             setCadData(data);
             setCadThoughts(''); // Clear thoughts when generation complete
-            // Auto-show the window if it's hidden (optional, but good UX)
+            setShowCadWindow(true); // Open window when data arrives
+            // Auto-show the window if it's hidden, clamped to viewport
             if (!elementPositions.cad) {
+                const size = { w: 400, h: 400 };
+                const clamped = clampToViewport({ x: window.innerWidth / 2 + 150, y: window.innerHeight / 2 }, size);
                 setElementPositions(prev => ({
                     ...prev,
-                    cad: { x: window.innerWidth / 2 + 200, y: window.innerHeight / 2 }
+                    cad: clamped
                 }));
             }
         });
@@ -331,14 +374,17 @@ function App() {
             }
             if (data.status === 'generating' || data.status === 'retrying') {
                 setCadData({ format: 'loading' });
+                setShowCadWindow(true);
                 if (data.status === 'generating' && data.attempt === 1) {
                     setCadThoughts(''); // Clear previous thoughts for new generation
                 }
-                // Auto-show the window
+                // Auto-show the window, clamped to viewport
                 if (!elementPositions.cad) {
+                    const size = { w: 400, h: 400 };
+                    const clamped = clampToViewport({ x: window.innerWidth / 2 + 150, y: window.innerHeight / 2 }, size);
                     setElementPositions(prev => ({
                         ...prev,
-                        cad: { x: window.innerWidth / 2 + 200, y: window.innerHeight / 2 }
+                        cad: clamped
                     }));
                 }
             } else if (data.status === 'failed') {
@@ -355,11 +401,14 @@ function App() {
                 image: data.image,
                 logs: [...prev.logs, data.log].filter(l => l).slice(-50) // Keep last 50 logs
             }));
-            // Auto-show browser window if hidden
+            setShowBrowserWindow(true);
+            // Auto-show browser window if hidden, clamped to viewport
             if (!elementPositions.browser) {
+                const size = { w: 550, h: 380 };
+                const clamped = clampToViewport({ x: window.innerWidth / 2 - 200, y: window.innerHeight / 2 }, size);
                 setElementPositions(prev => ({
                     ...prev,
-                    browser: { x: window.innerWidth / 2 - 300, y: window.innerHeight / 2 }
+                    browser: clamped
                 }));
             }
         });
@@ -399,9 +448,11 @@ function App() {
         // Handle Print Window Request (from CadWindow)
         socket.on('request_print_window', () => {
             setShowPrinterWindow(true);
+            const size = { w: 380, h: 380 };
+            const clamped = clampToViewport({ x: window.innerWidth / 2, y: window.innerHeight / 2 }, size);
             setElementPositions(prev => ({
                 ...prev,
-                printer: { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+                printer: clamped
             }));
         });
 
@@ -666,12 +717,14 @@ function App() {
                 const thumbTip = landmarks[4];
 
                 // Map to Screen Coords with Sensitivity Scaling
-                // User requested: "when my hand moves left the cursor moves right flip this" -> indexTip.x
                 // Sensitivity: Map center 50% of camera to 100% of screen.
                 const SENSITIVITY = cursorSensitivityRef.current;
 
+                // Apply camera flip if enabled (horizontal mirror)
+                const rawX = isCameraFlippedRef.current ? (1 - indexTip.x) : indexTip.x;
+
                 // 1. Normalize and Scale X
-                let normX = (indexTip.x - 0.5) * SENSITIVITY + 0.5;
+                let normX = (rawX - 0.5) * SENSITIVITY + 0.5;
                 // Clamp to [0, 1]
                 normX = Math.max(0, Math.min(1, normX));
 
@@ -784,55 +837,70 @@ function App() {
                 }
                 setIsPinching(isPinchNow);
 
-                // Modular Mode Dragging Logic
-                if (isModularModeRef.current) {
-                    // Fist Detection (Simple Heuristic: Tips close to Wrist)
-                    // Wrist is 0. Tips are 8, 12, 16, 20. MCPs are 5, 9, 13, 17.
-                    // Check if tips are closer to wrist than MCPs (folded)
-                    const isFingerFolded = (tipIdx, mcpIdx) => {
-                        const tip = landmarks[tipIdx];
-                        const mcp = landmarks[mcpIdx];
-                        const wrist = landmarks[0];
-                        const distTip = Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2));
-                        const distMcp = Math.sqrt(Math.pow(mcp.x - wrist.x, 2) + Math.pow(mcp.y - wrist.y, 2));
-                        return distTip < distMcp; // Folded if tip is closer
-                    };
+                // Fist Detection for Gesture-Based Dragging (Popup Windows Only)
+                // Detects if all fingers are folded (tips closer to wrist than MCPs)
+                const isFingerFolded = (tipIdx, mcpIdx) => {
+                    const tip = landmarks[tipIdx];
+                    const mcp = landmarks[mcpIdx];
+                    const wrist = landmarks[0];
+                    const distTip = Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2));
+                    const distMcp = Math.sqrt(Math.pow(mcp.x - wrist.x, 2) + Math.pow(mcp.y - wrist.y, 2));
+                    return distTip < distMcp; // Folded if tip is closer
+                };
 
-                    const isFist = isFingerFolded(8, 5) && isFingerFolded(12, 9) && isFingerFolded(16, 13) && isFingerFolded(20, 17);
+                const isFist = isFingerFolded(8, 5) && isFingerFolded(12, 9) && isFingerFolded(16, 13) && isFingerFolded(20, 17);
 
-                    if (isFist) {
-                        if (!activeDragElementRef.current) {
-                            // Check collision with draggable elements
-                            const elements = ['video', 'visualizer', 'chat', 'cad', 'browser', 'kasa', 'tools'];
+                // Get wrist position in screen coordinates (stable reference for fist gesture)
+                const wrist = landmarks[0];
+                const wristRawX = isCameraFlippedRef.current ? (1 - wrist.x) : wrist.x;
+                const wristNormX = Math.max(0, Math.min(1, (wristRawX - 0.5) * SENSITIVITY + 0.5));
+                const wristNormY = Math.max(0, Math.min(1, (wrist.y - 0.5) * SENSITIVITY + 0.5));
+                const wristScreenX = wristNormX * window.innerWidth;
+                const wristScreenY = wristNormY * window.innerHeight;
 
-                            for (const id of elements) {
-                                const el = document.getElementById(id);
-                                if (el) {
-                                    const rect = el.getBoundingClientRect();
-                                    if (finalX >= rect.left && finalX <= rect.right && finalY >= rect.top && finalY <= rect.bottom) {
-                                        activeDragElementRef.current = id;
-                                        break;
-                                    }
+                if (isFist) {
+                    if (!activeDragElementRef.current) {
+                        // Only check popup windows (draggable elements)
+                        const draggableElements = ['cad', 'browser', 'kasa', 'printer'];
+
+                        for (const id of draggableElements) {
+                            const el = document.getElementById(id);
+                            if (el) {
+                                const rect = el.getBoundingClientRect();
+                                // Use the cursor position from before fist was made for hit detection
+                                if (finalX >= rect.left && finalX <= rect.right && finalY >= rect.top && finalY <= rect.bottom) {
+                                    activeDragElementRef.current = id;
+                                    bringToFront(id);
+                                    // Lock the initial wrist position when starting drag
+                                    lastWristPosRef.current = { x: wristScreenX, y: wristScreenY };
+                                    break;
                                 }
                             }
                         }
+                    }
 
-                        if (activeDragElementRef.current) {
-                            const dx = finalX - lastCursorPosRef.current.x;
-                            const dy = finalY - lastCursorPosRef.current.y;
+                    if (activeDragElementRef.current) {
+                        // Use WRIST movement (not index finger) for stable dragging
+                        // The wrist doesn't move when making a fist
+                        const dx = wristScreenX - lastWristPosRef.current.x;
+                        const dy = wristScreenY - lastWristPosRef.current.y;
 
-                            // Update position
+                        // Update position only if there's actual movement
+                        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
                             updateElementPosition(activeDragElementRef.current, dx, dy);
                         }
-                    } else {
-                        activeDragElementRef.current = null;
-                    }
 
-                    // Sync state for visual feedback (only on change)
-                    if (activeDragElementRef.current !== lastActiveDragElementRef.current) {
-                        setActiveDragElement(activeDragElementRef.current);
-                        lastActiveDragElementRef.current = activeDragElementRef.current;
+                        // Update last wrist position
+                        lastWristPosRef.current = { x: wristScreenX, y: wristScreenY };
                     }
+                } else {
+                    activeDragElementRef.current = null;
+                }
+
+                // Sync state for visual feedback (only on change)
+                if (activeDragElementRef.current !== lastActiveDragElementRef.current) {
+                    setActiveDragElement(activeDragElementRef.current);
+                    lastActiveDragElementRef.current = activeDragElementRef.current;
                 }
 
                 lastCursorPosRef.current = { x: finalX, y: finalY };
@@ -1039,12 +1107,31 @@ function App() {
 
     // --- MOUSE DRAG HANDLERS ---
     const handleMouseDown = (e, id) => {
-        console.log(`[MouseDrag] MouseDown on ${id}`, { isModularMode: isModularModeRef.current, target: e.target.tagName });
-        if (!isModularModeRef.current) return;
+        console.log(`[MouseDrag] MouseDown on ${id}`, { target: e.target.tagName });
 
-        // Prevent dragging if interacting with inputs or buttons, unless it's the header
-        if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'button' || e.target.closest('button')) {
-            console.log("[MouseDrag] Interaction blocked by input/button");
+        // Fixed elements that should never be draggable (even in modular mode)
+        const fixedElements = ['visualizer', 'chat', 'video', 'tools'];
+        if (fixedElements.includes(id)) {
+            console.log(`[MouseDrag] ${id} is a fixed element, not draggable`);
+            return;
+        }
+
+        // Bring clicked element to front (z-index)
+        bringToFront(id);
+
+        // Prevent dragging if interacting with inputs, buttons, or canvas (for 3D controls)
+        const tagName = e.target.tagName.toLowerCase();
+        if (tagName === 'input' || tagName === 'button' || tagName === 'textarea' || tagName === 'canvas' || e.target.closest('button')) {
+            console.log("[MouseDrag] Interaction blocked by interactive element");
+            return;
+        }
+
+        // Check if clicking on a drag handle section (data-drag-handle attribute)
+        const isDragHandle = e.target.closest('[data-drag-handle]');
+        if (!isDragHandle && !isModularModeRef.current) {
+            // If not clicking a drag handle and modular mode is off, don't drag
+            // This allows popup windows to have dedicated drag areas
+            console.log("[MouseDrag] Not a drag handle and modular mode off");
             return;
         }
 
@@ -1286,16 +1373,11 @@ function App() {
 
                 <div
                     id="video"
-                    className={`absolute transition-all duration-200 
+                    className={`fixed bottom-4 right-4 transition-all duration-200 
                         ${isVideoOn ? 'opacity-100' : 'opacity-0 pointer-events-none'} 
-                        backdrop-blur-md bg-black/40 border border-white/10 shadow-xl
-                        ${isModularMode ? (activeDragElement === 'video' ? 'ring-2 ring-green-500' : 'ring-1 ring-yellow-500/30') + ' rounded-xl p-3' : ''}
+                        backdrop-blur-md bg-black/40 border border-white/10 shadow-xl rounded-xl
                     `}
-                    style={{
-                        left: elementPositions.video.x,
-                        top: elementPositions.video.y,
-                    }}
-                    onMouseDown={(e) => handleMouseDown(e, 'video')}
+                    style={{ zIndex: 20 }}
                 >
                     <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5 pointer-events-none mix-blend-overlay"></div>
                     {/* 16:9 Aspect Ratio Container */}
@@ -1306,15 +1388,14 @@ function App() {
                         <div className="absolute top-2 left-2 text-[10px] text-cyan-400 bg-black/60 backdrop-blur px-2 py-0.5 rounded border border-cyan-500/20 z-10 font-bold tracking-wider">CAM_01</div>
 
                         {/* Canvas for Displaying Video + Skeleton (Ensures overlap) */}
-                        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full opacity-80" />
+                        <canvas
+                            ref={canvasRef}
+                            className="absolute inset-0 w-full h-full opacity-80"
+                            style={{ transform: isCameraFlipped ? 'scaleX(-1)' : 'none' }}
+                        />
                     </div>
-
-
-
-
                 </div>
 
-                {/* Settings Modal - Moved outside Video so it shows independently */}
                 {/* Settings Modal - Moved outside Video so it shows independently */}
                 {showSettings && (
                     <SettingsWindow
@@ -1324,63 +1405,87 @@ function App() {
                         setSelectedDeviceId={setSelectedDeviceId}
                         cursorSensitivity={cursorSensitivity}
                         setCursorSensitivity={setCursorSensitivity}
+                        isCameraFlipped={isCameraFlipped}
+                        setIsCameraFlipped={setIsCameraFlipped}
                         handleFileUpload={handleFileUpload}
                         onClose={() => setShowSettings(false)}
                     />
                 )}
 
                 {/* CAD Window Overlay - Moved outside of Video so it can show independently */}
-                {cadData && (
+                {showCadWindow && (
                     <div
                         id="cad"
-                        className={`absolute flex items-center justify-center transition-all duration-200 
-                        backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl overflow-hidden
-                        ${isModularMode ? (activeDragElement === 'cad' ? 'ring-2 ring-green-500 bg-green-500/10' : 'ring-1 ring-cyan-500/30 bg-cyan-500/5') + ' rounded-2xl' : 'rounded-2xl'}
+                        className={`absolute flex flex-col transition-all duration-200 
+                        backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl overflow-hidden rounded-2xl
+                        ${activeDragElement === 'cad' ? 'ring-2 ring-green-500 bg-green-500/10' : ''}
                     `}
                         style={{
                             left: elementPositions.cad?.x || window.innerWidth / 2,
                             top: elementPositions.cad?.y || window.innerHeight / 2,
                             transform: 'translate(-50%, -50%)',
-                            width: '500px',
-                            height: '500px',
-                            pointerEvents: 'auto'
+                            width: `${elementSizes.cad.w}px`,
+                            height: `${elementSizes.cad.h}px`,
+                            pointerEvents: 'auto',
+                            zIndex: getZIndex('cad')
                         }}
+                        onMouseDown={(e) => handleMouseDown(e, 'cad')}
                     >
-                        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
-                        <div className="relative z-20 w-full h-full">
-                            <CadWindow data={cadData} thoughts={cadThoughts} retryInfo={cadRetryInfo} onClose={() => setCadData(null)} socket={socket} />
+                        {/* Drag Handle Header */}
+                        <div
+                            data-drag-handle
+                            className="h-8 bg-gray-900/80 border-b border-cyan-500/20 flex items-center justify-between px-3 cursor-grab active:cursor-grabbing shrink-0"
+                        >
+                            <span className="text-xs font-bold tracking-widest text-cyan-500/70">CAD PROTOTYPE</span>
+                            <button
+                                onClick={() => setShowCadWindow(false)}
+                                className="text-gray-400 hover:text-red-400 hover:bg-red-500/20 p-1 rounded transition-colors"
+                            >
+                                ✕
+                            </button>
                         </div>
-                        {isModularMode && <div className={`absolute top-2 left-2 text-xs font-bold tracking-widest z-20 ${activeDragElement === 'cad' ? 'text-green-500' : 'text-cyan-500/50'}`}>CAD PROTOTYPE</div>}
+                        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
+                        <div className="relative z-20 flex-1 min-h-0">
+                            <CadWindow
+                                data={cadData}
+                                thoughts={cadThoughts}
+                                retryInfo={cadRetryInfo}
+                                onClose={() => setShowCadWindow(false)}
+                                socket={socket}
+                            />
+                        </div>
                     </div>
                 )}
 
 
                 {/* Browser Window Overlay */}
-                {browserData.image && (
+                {showBrowserWindow && (
                     <div
                         id="browser"
-                        className={`absolute flex items-center justify-center transition-all duration-200 
-                        backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl overflow-hidden
-                        ${isModularMode ? (activeDragElement === 'browser' ? 'ring-2 ring-green-500 bg-green-500/10' : 'ring-1 ring-cyan-500/30 bg-cyan-500/5') + ' rounded-lg' : 'rounded-lg'}
+                        className={`absolute flex flex-col transition-all duration-200 
+                        backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl overflow-hidden rounded-lg
+                        ${activeDragElement === 'browser' ? 'ring-2 ring-green-500 bg-green-500/10' : ''}
                     `}
                         style={{
-                            left: elementPositions.browser?.x || window.innerWidth / 2 - 300,
+                            left: elementPositions.browser?.x || window.innerWidth / 2 - 200,
                             top: elementPositions.browser?.y || window.innerHeight / 2,
                             transform: 'translate(-50%, -50%)',
-                            width: '600px',
-                            height: '450px',
-                            pointerEvents: 'auto'
+                            width: `${elementSizes.browser.w}px`,
+                            height: `${elementSizes.browser.h}px`,
+                            pointerEvents: 'auto',
+                            zIndex: getZIndex('browser')
                         }}
+                        onMouseDown={(e) => handleMouseDown(e, 'browser')}
                     >
                         <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none mix-blend-overlay z-10"></div>
                         <div className="relative z-20 w-full h-full">
                             <BrowserWindow
                                 imageSrc={browserData.image}
                                 logs={browserData.logs}
-                                onClose={() => setBrowserData({ image: null, logs: [] })}
+                                onClose={() => setShowBrowserWindow(false)}
+                                socket={socket}
                             />
                         </div>
-                        {isModularMode && <div className={`absolute top-2 left-2 text-xs font-bold tracking-widest z-20 ${activeDragElement === 'browser' ? 'text-green-500' : 'text-cyan-500/50'}`}>WEB BROWSER</div>}
                     </div>
                 )}
 
@@ -1405,19 +1510,21 @@ function App() {
                         isConnected={isConnected}
                         isMuted={isMuted}
                         isVideoOn={isVideoOn}
-                        isModularMode={isModularMode}
                         isHandTrackingEnabled={isHandTrackingEnabled}
                         showSettings={showSettings}
-                        showKasaWindow={showKasaWindow}
                         onTogglePower={togglePower}
                         onToggleMute={toggleMute}
                         onToggleVideo={toggleVideo}
                         onToggleSettings={() => setShowSettings(!showSettings)}
-                        onToggleLayout={() => setIsModularMode(!isModularMode)}
                         onToggleHand={() => setIsHandTrackingEnabled(!isHandTrackingEnabled)}
                         onToggleKasa={toggleKasaWindow}
+                        showKasaWindow={showKasaWindow}
                         onTogglePrinter={togglePrinterWindow}
                         showPrinterWindow={showPrinterWindow}
+                        onToggleCad={() => setShowCadWindow(!showCadWindow)}
+                        showCadWindow={showCadWindow}
+                        onToggleBrowser={() => setShowBrowserWindow(!showBrowserWindow)}
+                        showBrowserWindow={showBrowserWindow}
                         activeDragElement={activeDragElement}
                         position={elementPositions.tools}
                         onMouseDown={(e) => handleMouseDown(e, 'tools')}
@@ -1434,6 +1541,7 @@ function App() {
                         devices={kasaDevices}
                         onClose={() => setShowKasaWindow(false)}
                         onMouseDown={(e) => handleMouseDown(e, 'kasa')}
+                        zIndex={getZIndex('kasa')}
                     />
                 )}
 
@@ -1446,6 +1554,7 @@ function App() {
                         onMouseDown={(e) => handleMouseDown(e, 'printer')}
                         activeDragElement={activeDragElement}
                         setActiveDragElement={setActiveDragElement}
+                        zIndex={getZIndex('printer')}
                     />
                 )}
 
