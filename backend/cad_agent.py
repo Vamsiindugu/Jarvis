@@ -141,13 +141,9 @@ export_stl(result_part, 'output.stl')
                 import subprocess
                 import sys
                 
-                # Use the dedicated environment for CAD generation to avoid numpy conflicts
-                # Main env: numpy < 2 (for face_recognition)
-                # CAD env: numpy >= 2 (for build123d)
-                cad_python_path = "/opt/anaconda3/envs/ada_cad_env/bin/python"
-                
+                # Use the current Python interpreter (unified environment with build123d + mediapipe)
                 proc = await asyncio.create_subprocess_exec(
-                    cad_python_path, script_name,
+                    sys.executable, script_name,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
@@ -325,13 +321,9 @@ Ensure you still export to 'output.stl'.
                 import subprocess
                 import sys
                 
-                # Use the dedicated environment for CAD generation to avoid numpy conflicts
-                # Main env: numpy < 2 (for face_recognition)
-                # CAD env: numpy >= 2 (for build123d)
-                cad_python_path = "/opt/anaconda3/envs/ada_cad_env/bin/python"
-                
+                # Use the current Python interpreter (unified environment with build123d + mediapipe)
                 proc = await asyncio.create_subprocess_exec(
-                    cad_python_path, script_name,
+                    sys.executable, script_name,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
