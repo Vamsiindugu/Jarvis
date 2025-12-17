@@ -113,21 +113,26 @@ class PrinterAgent:
         os.makedirs(profiles_dir, exist_ok=True)
     
     def _detect_slicer_path(self) -> Optional[str]:
-        """Detect PrusaSlicer installation path."""
+        """Detect OrcaSlicer or PrusaSlicer installation path."""
         system = platform.system()
         
+        paths = []
         if system == "Darwin":  # macOS
             paths = [
+                "/Applications/OrcaSlicer.app/Contents/MacOS/OrcaSlicer",
                 "/Applications/PrusaSlicer.app/Contents/MacOS/PrusaSlicer",
                 "/Applications/Original Prusa Drivers/PrusaSlicer.app/Contents/MacOS/PrusaSlicer"
             ]
         elif system == "Windows":
             paths = [
+                r"C:\Program Files\OrcaSlicer\orca-slicer-console.exe",
                 r"C:\Program Files\Prusa3D\PrusaSlicer\prusa-slicer-console.exe",
                 r"C:\Program Files (x86)\Prusa3D\PrusaSlicer\prusa-slicer-console.exe"
             ]
         else:  # Linux
             paths = [
+                "/usr/bin/orca-slicer",
+                os.path.expanduser("~/.local/bin/orca-slicer"),
                 "/usr/bin/prusa-slicer",
                 "/usr/local/bin/prusa-slicer",
                 os.path.expanduser("~/.local/bin/prusa-slicer")
@@ -135,23 +140,24 @@ class PrinterAgent:
         
         for path in paths:
             if os.path.exists(path):
-                print(f"[PRINTER] Found PrusaSlicer at: {path}")
+                print(f"[PRINTER] Found Slicer at: {path}")
                 return path
         
         # Try to find via which/where
-        try:
-            result = subprocess.run(
-                ["which", "prusa-slicer"] if system != "Windows" else ["where", "prusa-slicer-console"],
-                capture_output=True, text=True
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                path = result.stdout.strip().split('\n')[0]
-                print(f"[PRINTER] Found PrusaSlicer via PATH: {path}")
-                return path
-        except Exception:
-            pass
+        for binary in ["orca-slicer", "prusa-slicer", "prusa-slicer-console"]:
+             try:
+                result = subprocess.run(
+                    ["which", binary] if system != "Windows" else ["where", binary],
+                    capture_output=True, text=True
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    path = result.stdout.strip().split('\n')[0]
+                    print(f"[PRINTER] Found Slicer via PATH: {path}")
+                    return path
+             except Exception:
+                pass
         
-        print("[PRINTER] Warning: PrusaSlicer not found. Slicing will fail.")
+        print("[PRINTER] Warning: No Slicer (Orca/Prusa) found. Slicing will fail.")
         return None
 
     async def discover_printers(self, timeout: float = 5.0) -> List[Dict]:
@@ -204,35 +210,58 @@ class PrinterAgent:
 
     async def _probe_printer_type(self, host: str, port: int) -> PrinterType:
         """Probe a host to check if it's running Moonraker or OctoPrint."""
+        print(f"[PRINTER DEBUG] Probing http://{host}:{port}...")
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
+            # Short timeout to avoid hangs on unreachable ports
+            timeout = aiohttp.ClientTimeout(total=2.0, connect=1.0)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 # Check Moonraker (Creality K1, Klipper)
                 # /printer/info is a standard Moonraker public endpoint
                 try:
                     url = f"http://{host}:{port}/printer/info"
                     async with session.get(url) as resp:
+                        print(f"[PRINTER DEBUG] {url} -> {resp.status}")
                         if resp.status == 200:
                             data = await resp.json()
                             if "result" in data or "hostname" in data:
+                                print(f"[PRINTER DEBUG] Found MOONRAKER at {host}:{port}")
                                 return PrinterType.MOONRAKER
-                except:
-                    pass
+                except asyncio.TimeoutError:
+                    print(f"[PRINTER DEBUG] Timeout probing {host}:{port}")
+                except Exception as e:
+                    print(f"[PRINTER DEBUG] Error probing {host}:{port}: {e}")
 
                 # Check OctoPrint
                 # /api/version usually requires key, but returns 401 or 200
                 try:
                      url = f"http://{host}:{port}/api/version"
                      async with session.get(url) as resp:
+                         print(f"[PRINTER DEBUG] {url} -> {resp.status}")
                          # 200 (if public), 403 (needs key) - both mean it IS OctoPrint
                          if resp.status in (200, 403, 401):
-                             # To be sure, check header or body?
-                             # For now, it's a strong signal
+                             print(f"[PRINTER DEBUG] Found OCTOPRINT at {host}:{port}")
                              return PrinterType.OCTOPRINT
+                except asyncio.TimeoutError:
+                     pass
+                except Exception:
+                     pass
+                     
+                # Fallback: Check root for identification
+                try:
+                    url = f"http://{host}:{port}/"
+                    async with session.get(url) as resp:
+                        content = await resp.text()
+                        print(f"[PRINTER DEBUG] Root {url} -> {resp.status}")
+                        if "<title>" in content:
+                            title = content.split("<title>")[1].split("</title>")[0]
+                            print(f"[PRINTER DEBUG] Page Title: {title}")
+                        if "Server" in resp.headers:
+                            print(f"[PRINTER DEBUG] Server Header: {resp.headers['Server']}")
                 except:
                     pass
                     
         except Exception as e:
-            print(f"[PRINTER] Probel error for {host}: {e}")
+            print(f"[PRINTER] Probe error for {host}:{port}: {e}")
         
         return PrinterType.UNKNOWN
     
@@ -496,13 +525,25 @@ class PrinterAgent:
                                     "target": bed.get("target", 0)
                                 }
                             }
-                        )
+                )
                     else:
                         print(f"[PRINTER] Moonraker status failed ({resp.status})")
                         return None
         except Exception as e:
-            print(f"[PRINTER] Moonraker status error: {e}")
-            return None
+            msg = str(e)
+            if "404" in msg:
+                 print(f"[PRINTER] Moonraker status failed (404) at {url}")
+            else:
+                 print(f"[PRINTER] Moonraker status failed: {e}")
+            return PrintStatus(
+                printer=printer.name,
+                state=f"Error: {e}",
+                progress_percent=0,
+                time_remaining=None,
+                time_elapsed=None,
+                filename=None,
+                temperatures={}
+            )
     
     async def print_stl(self, stl_path: str, target: str, 
                         profile: Optional[str] = None) -> Dict[str, Any]:

@@ -92,7 +92,43 @@ const PrinterWindow = ({
             </div>
 
             {/* Content */}
-            <div className="p-4 max-h-[400px] overflow-y-auto">
+            <div className="p-4 max-h-[400px] overflow-y-auto custom-scrollbar">
+                {/* Manual Add Section */}
+                <div className="mb-4 p-3 bg-white/5 border border-white/10 rounded-lg">
+                    <div className="text-[10px] uppercase text-white/40 font-bold mb-2 tracking-wider">Manual Add</div>
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            placeholder="IP Address (e.g. 192.168.1.50)"
+                            className="flex-1 bg-black/50 border border-white/10 rounded px-2 py-1 text-xs text-green-100 focus:border-green-500/50 outline-none placeholder:text-white/20"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    const ip = e.target.value.trim();
+                                    if (ip) {
+                                        socket.emit('add_printer', { host: ip, type: 'moonraker' }); // Default to Moonraker as requested
+                                        e.target.value = '';
+                                        setIsDiscovering(true);
+                                    }
+                                }
+                            }}
+                        />
+                        <button
+                            className="bg-green-500/20 hover:bg-green-500/30 text-green-400 text-xs px-3 rounded transition-colors"
+                            onClick={(e) => {
+                                const input = e.currentTarget.previousSibling;
+                                const ip = input.value.trim();
+                                if (ip) {
+                                    socket.emit('add_printer', { host: ip, type: 'moonraker' });
+                                    input.value = '';
+                                    setIsDiscovering(true);
+                                }
+                            }}
+                        >
+                            Add
+                        </button>
+                    </div>
+                </div>
+
                 {printers.length === 0 ? (
                     <div className="text-center py-8 text-white/30 text-xs">
                         {isDiscovering ? (
@@ -101,7 +137,7 @@ const PrinterWindow = ({
                                 <span>Scanning Network...</span>
                             </div>
                         ) : (
-                            "No printers found. Make sure OctoPrint/Moonraker is running."
+                            "No printers found. Try adding IP manually."
                         )}
                     </div>
                 ) : (

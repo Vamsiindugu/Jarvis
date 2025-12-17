@@ -74,10 +74,8 @@ function App() {
     const [isModularMode, setIsModularMode] = useState(false);
     const [elementPositions, setElementPositions] = useState({
         video: { x: 40, y: 80 }, // Initial positions (approximate)
-        visualizer: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
-        chat: { x: window.innerWidth / 2, y: window.innerHeight - 100 },
-
-        cad: { x: window.innerWidth / 2 + 300, y: window.innerHeight / 2 },
+        visualizer: { x: window.innerWidth / 2, y: window.innerHeight / 2 - 150 },
+        chat: { x: window.innerWidth / 2, y: window.innerHeight / 2 + 100 },
         cad: { x: window.innerWidth / 2 + 300, y: window.innerHeight / 2 },
         browser: { x: window.innerWidth / 2 - 300, y: window.innerHeight / 2 },
         kasa: { x: window.innerWidth / 2 + 350, y: window.innerHeight / 2 - 100 },
@@ -91,7 +89,6 @@ function App() {
         tools: { w: 500, h: 80 }, // Approx
         cad: { w: 500, h: 500 },
         browser: { w: 600, h: 450 },
-        video: { w: 320, h: 180 },
         video: { w: 320, h: 180 },
         kasa: { w: 300, h: 400 }, // Approx
         printer: { w: 400, h: 400 } // Approx

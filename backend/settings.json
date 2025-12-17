@@ -16,5 +16,19 @@
         "print_stl": true,
         "get_print_status": false,
         "iterate_cad": false
-    }
+    },
+    "printers": [
+        {
+            "name": "10.0.0.34",
+            "host": "10.0.0.34",
+            "port": 7125,
+            "type": "moonraker"
+        },
+        {
+            "name": "10.0.0.142",
+            "host": "10.0.0.142",
+            "port": 80,
+            "type": "moonraker"
+        }
+    ]
 }

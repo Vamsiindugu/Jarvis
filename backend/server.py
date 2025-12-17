@@ -39,7 +39,8 @@ DEFAULT_SETTINGS = {
         "create_project": True,
         "switch_project": True,
         "list_projects": True
-    }
+    },
+    "printers": [] # List of {host, port, name, type}
 }
 
 SETTINGS = DEFAULT_SETTINGS.copy()
@@ -249,6 +250,21 @@ async def start_audio(sid, data=None):
         
         print("Emitting 'A.D.A Started'")
         await sio.emit('status', {'msg': 'A.D.A Started'})
+
+        # Load saved printers
+        saved_printers = SETTINGS.get("printers", [])
+        if saved_printers and audio_loop.printer_agent:
+            print(f"[SERVER] Loading {len(saved_printers)} saved printers...")
+            for p in saved_printers:
+                audio_loop.printer_agent.add_printer_manually(
+                    name=p.get("name", p["host"]),
+                    host=p["host"],
+                    port=p.get("port", 80),
+                    printer_type=p.get("type", "moonraker")
+                )
+        
+        # Start Printer Monitor
+        asyncio.create_task(monitor_printers_loop())
         
     except Exception as e:
         print(f"CRITICAL ERROR STARTING ADA: {e}")
@@ -257,6 +273,38 @@ async def start_audio(sid, data=None):
         await sio.emit('error', {'msg': f"Failed to start: {str(e)}"})
         audio_loop = None # Ensure we can try again
 
+
+async def monitor_printers_loop():
+    """Background task to query printer status periodically."""
+    print("[SERVER] Starting Printer Monitor Loop")
+    while audio_loop and audio_loop.printer_agent:
+        try:
+            agent = audio_loop.printer_agent
+            if not agent.printers:
+                await asyncio.sleep(5)
+                continue
+                
+            tasks = []
+            for host, printer in agent.printers.items():
+                if printer.printer_type.value != "unknown":
+                    tasks.append(agent.get_print_status(host))
+            
+            if tasks:
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for res in results:
+                    if isinstance(res, Exception):
+                        pass # Ignore errors for now
+                    elif res:
+                        # res is PrintStatus object
+                        await sio.emit('print_status_update', res.to_dict())
+                        
+        except asyncio.CancelledError:
+            print("[SERVER] Printer Monitor Cancelled")
+            break
+        except Exception as e:
+            print(f"[SERVER] Monitor Loop Error: {e}")
+            
+        await asyncio.sleep(2) # Update every 2 seconds for responsiveness
 
 @sio.event
 async def stop_audio(sid):
@@ -490,6 +538,81 @@ async def discover_printers(sid):
     except Exception as e:
         print(f"Error discovering printers: {e}")
         await sio.emit('error', {'msg': f"Printer Discovery Failed: {str(e)}"})
+
+@sio.event
+async def add_printer(sid, data):
+    # data: { host: "192.168.1.50", name: "My Printer", type: "moonraker" }
+    raw_host = data.get('host')
+    name = data.get('name') or raw_host
+    ptype = data.get('type', "moonraker")
+    
+    # Parse port if present
+    if ":" in raw_host:
+        host, port_str = raw_host.split(":")
+        port = int(port_str)
+    else:
+        host = raw_host
+        port = 80
+    
+    print(f"Received add_printer request: {host}:{port} ({ptype})")
+    
+    if not audio_loop or not audio_loop.printer_agent:
+        await sio.emit('error', {'msg': "Printer Agent not available"})
+        return
+        
+    try:
+        # Add manually
+        printer = audio_loop.printer_agent.add_printer_manually(name, host, port=port, printer_type=ptype)
+        
+        # Save to settings
+        new_printer_config = {
+            "name": name,
+            "host": host,
+            "port": port,
+            "type": ptype
+        }
+        
+        # Check if already exists to avoid duplicates
+        exists = False
+        for p in SETTINGS.get("printers", []):
+            if p["host"] == host and p["port"] == port:
+                exists = True
+                break
+        
+        if not exists:
+            if "printers" not in SETTINGS:
+                SETTINGS["printers"] = []
+            SETTINGS["printers"].append(new_printer_config)
+            save_settings()
+            print(f"[SERVER] Saved printer {name} to settings.")
+        
+        # Probe to confirm/correct type
+        print(f"Probing {host} to confirm type...")
+        # Try port 7125 (Moonraker) and 4408 (Fluidd/K1) 
+        ports_to_try = [80, 7125, 4408]
+        
+        actual_type = "unknown"
+        for port in ports_to_try:
+             found_type = await audio_loop.printer_agent._probe_printer_type(host, port)
+             if found_type.value != "unknown":
+                 actual_type = found_type
+                 # Update port if different
+                 if port != 80:
+                     printer.port = port
+                 break
+        
+        if actual_type != "unknown" and actual_type != printer.printer_type:
+             printer.printer_type = actual_type
+             print(f"Corrected type to {actual_type.value} on port {printer.port}")
+             
+        # Refresh list for everyone
+        printers = [p.to_dict() for p in audio_loop.printer_agent.printers.values()]
+        await sio.emit('printer_list', printers)
+        await sio.emit('status', {'msg': f"Added printer: {name}"})
+        
+    except Exception as e:
+        print(f"Error adding printer: {e}")
+        await sio.emit('error', {'msg': f"Failed to add printer: {str(e)}"})
 
 @sio.event
 async def print_stl(sid, data):
