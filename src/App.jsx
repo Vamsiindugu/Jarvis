@@ -345,18 +345,18 @@ function App() {
         // Handle streaming transcription
         socket.on('transcription', (data) => {
             setMessages(prev => {
-                const newMessages = [...prev];
-                const lastMsg = newMessages[newMessages.length - 1];
+                const lastMsg = prev[prev.length - 1];
 
                 // If the last message is from the same sender, append the chunk
-                // We assume chunks come in order. This is a simple append logic.
-                // NOTE: 'User' usually comes in one chunk for valid prompts, but streaming for partial recognition might happen.
-                // 'ADA' (Model) definitely streams.
                 if (lastMsg && lastMsg.sender === data.sender) {
-                    // Update the last message text
-                    lastMsg.text += data.text;
-                    // Return a new array to trigger re-render
-                    return newMessages;
+                    // Create a NEW object instead of mutating (prevents React StrictMode duplication)
+                    return [
+                        ...prev.slice(0, -1),
+                        {
+                            ...lastMsg,
+                            text: lastMsg.text + data.text
+                        }
+                    ];
                 } else {
                     // New message block
                     return [...prev, {
@@ -371,7 +371,6 @@ function App() {
         // Handle tool confirmation requests
         socket.on('tool_confirmation_request', (data) => {
             console.log("Received Confirmation Request:", data);
-            setConfirmationRequest(data);
             setConfirmationRequest(data);
         });
 
@@ -459,7 +458,6 @@ function App() {
             socket.off('cad_thought');
             socket.off('cad_status');
             socket.off('browser_frame');
-            socket.off('transcription');
             socket.off('transcription');
             socket.off('tool_confirmation_request');
             socket.off('kasa_devices');

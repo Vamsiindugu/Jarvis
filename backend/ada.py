@@ -141,6 +141,10 @@ class AudioLoop:
         self.paused = False
 
         self.chat_buffer = {"sender": None, "text": ""} # For aggregating chunks
+        
+        # Track last transcription text to calculate deltas (Gemini sends cumulative text)
+        self._last_input_transcription = ""
+        self._last_output_transcription = ""
 
         self.audio_in_queue = None
         self.out_queue = None
@@ -185,6 +189,9 @@ class AudioLoop:
         if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
             self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
             self.chat_buffer = {"sender": None, "text": ""}
+        # Reset transcription tracking for new turn
+        self._last_input_transcription = ""
+        self._last_output_transcription = ""
 
     def update_permissions(self, new_perms):
         print(f"[ADA DEBUG] [CONFIG] Updating tool permissions: {new_perms}")
@@ -310,8 +317,8 @@ class AudioLoop:
             # Save to Project
             self.project_manager.save_cad_artifact("output.stl", prompt)
 
-            # Notify the model that the task is done, so it can tell the user
-            completion_msg = "System Notification: CAD generation is complete. Inform the user that the model is ready."
+            # Notify the model that the task is done - this triggers speech about completion
+            completion_msg = "System Notification: CAD generation is complete! The 3D model is now displayed for the user. Let them know it's ready."
             try:
                 await self.session.send(input=completion_msg, end_of_turn=True)
                 print(f"[ADA DEBUG] [NOTE] Sent completion notification to model.")
@@ -450,38 +457,58 @@ class AudioLoop:
                         if response.server_content.input_transcription:
                             transcript = response.server_content.input_transcription.text
                             if transcript:
-                                # Send to frontend (Streaming)
-                                if self.on_transcription:
-                                     self.on_transcription({"sender": "User", "text": transcript})
-                                
-                                # Buffer for Logging
-                                if self.chat_buffer["sender"] != "User":
-                                    # Flush previous if exists
-                                    if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
-                                        self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
-                                    # Start new
-                                    self.chat_buffer = {"sender": "User", "text": transcript}
-                                else:
-                                    # Append
-                                    self.chat_buffer["text"] += transcript
+                                # Skip if this is an exact duplicate event
+                                if transcript != self._last_input_transcription:
+                                    # Calculate delta (Gemini may send cumulative or chunk-based text)
+                                    delta = transcript
+                                    if transcript.startswith(self._last_input_transcription):
+                                        delta = transcript[len(self._last_input_transcription):]
+                                    self._last_input_transcription = transcript
+                                    
+                                    # Only send if there's new text
+                                    if delta:
+                                        # Send to frontend (Streaming)
+                                        if self.on_transcription:
+                                             self.on_transcription({"sender": "User", "text": delta})
+                                        
+                                        # Buffer for Logging
+                                        if self.chat_buffer["sender"] != "User":
+                                            # Flush previous if exists
+                                            if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
+                                                self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
+                                            # Start new
+                                            self.chat_buffer = {"sender": "User", "text": delta}
+                                        else:
+                                            # Append
+                                            self.chat_buffer["text"] += delta
                         
                         if response.server_content.output_transcription:
                             transcript = response.server_content.output_transcription.text
                             if transcript:
-                                # Send to frontend (Streaming)
-                                if self.on_transcription:
-                                     self.on_transcription({"sender": "ADA", "text": transcript})
-                                
-                                # Buffer for Logging
-                                if self.chat_buffer["sender"] != "ADA":
-                                    # Flush previous
-                                    if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
-                                        self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
-                                    # Start new
-                                    self.chat_buffer = {"sender": "ADA", "text": transcript}
-                                else:
-                                    # Append
-                                    self.chat_buffer["text"] += transcript
+                                # Skip if this is an exact duplicate event
+                                if transcript != self._last_output_transcription:
+                                    # Calculate delta (Gemini may send cumulative or chunk-based text)
+                                    delta = transcript
+                                    if transcript.startswith(self._last_output_transcription):
+                                        delta = transcript[len(self._last_output_transcription):]
+                                    self._last_output_transcription = transcript
+                                    
+                                    # Only send if there's new text
+                                    if delta:
+                                        # Send to frontend (Streaming)
+                                        if self.on_transcription:
+                                             self.on_transcription({"sender": "ADA", "text": delta})
+                                        
+                                        # Buffer for Logging
+                                        if self.chat_buffer["sender"] != "ADA":
+                                            # Flush previous
+                                            if self.chat_buffer["sender"] and self.chat_buffer["text"].strip():
+                                                self.project_manager.log_chat(self.chat_buffer["sender"], self.chat_buffer["text"])
+                                            # Start new
+                                            self.chat_buffer = {"sender": "ADA", "text": delta}
+                                        else:
+                                            # Append
+                                            self.chat_buffer["text"] += delta
                         
                         # Flush buffer on turn completion if needed, 
                         # but usually better to wait for sender switch or explicit end.
@@ -558,17 +585,7 @@ class AudioLoop:
                                     print(f"[ADA DEBUG] [IN] Arguments: prompt='{prompt}'")
                                     
                                     asyncio.create_task(self.handle_cad_request(prompt))
-                                    
-                                    result_text = "CAD calibration started. The model is being generated in the background. Do not reply to this message."
-                                    function_response = types.FunctionResponse(
-                                        id=fc.id,
-                                        name=fc.name,
-                                        response={
-                                            "result": result_text,
-                                        }
-                                    )
-                                    print(f"[ADA DEBUG] [RESPONSE] Sending function response: {function_response}")
-                                    function_responses.append(function_response)
+                                    # No function response needed - model already acknowledged when user asked
                                 
                                 elif fc.name == "run_web_agent":
                                     print(f"[ADA DEBUG] [TOOL] Tool Call: 'run_web_agent' with prompt='{prompt}'")
@@ -583,7 +600,6 @@ class AudioLoop:
                                         }
                                     )
                                     print(f"[ADA DEBUG] [RESPONSE] Sending function response: {function_response}")
-                                    function_responses.append(function_response)
                                     function_responses.append(function_response)
 
 
@@ -649,7 +665,8 @@ class AudioLoop:
                                         id=fc.id, name=fc.name, response={"result": f"Available projects: {', '.join(projects)}"}
                                     )
                                     function_responses.append(function_response)
-                        await self.session.send_tool_response(function_responses=function_responses)
+                        if function_responses:
+                            await self.session.send_tool_response(function_responses=function_responses)
                 
                 # Turn/Response Loop Finished
                 self.flush_chat()

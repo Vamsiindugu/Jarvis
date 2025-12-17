@@ -13,7 +13,6 @@ from pathlib import Path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import ada
-import ada
 from authenticator import FaceAuthenticator
 from kasa_agent import KasaAgent
 
@@ -23,8 +22,6 @@ app = FastAPI()
 app_socketio = socketio.ASGIApp(sio, app)
 
 # Global state
-audio_loop = None
-loop_task = None
 audio_loop = None
 loop_task = None
 authenticator = None
@@ -108,7 +105,6 @@ async def connect(sid, environ):
         )
     
     # Check if already authenticated or needs to start
-    # Check if already authenticated or needs to start
     if authenticator.authenticated:
         await sio.emit('auth_status', {'authenticated': True})
     else:
@@ -132,7 +128,6 @@ async def disconnect(sid):
 async def start_audio(sid, data=None):
     global audio_loop, loop_task
     
-    # Optional: Block if not authenticated
     # Optional: Block if not authenticated
     # Only block if auth is ENABLED and not authenticated
     if SETTINGS.get("face_auth_enabled", False):
@@ -255,9 +250,6 @@ async def start_audio(sid, data=None):
         await sio.emit('error', {'msg': f"Failed to start: {str(e)}"})
         audio_loop = None # Ensure we can try again
 
-    except Exception as e:
-        print(f"Error starting ADA: {e}")
-        await sio.emit('error', {'msg': str(e)})
 
 @sio.event
 async def stop_audio(sid):
@@ -413,8 +405,6 @@ async def discover_kasa(sid):
         await sio.emit('kasa_devices', devices)
         await sio.emit('status', {'msg': f"Found {len(devices)} Kasa devices"})
     except Exception as e:
-        await sio.emit('status', {'msg': f"Found {len(devices)} Kasa devices"})
-    except Exception as e:
         print(f"Error discovering kasa: {e}")
         await sio.emit('error', {'msg': f"Kasa Discovery Failed: {str(e)}"})
 
@@ -485,7 +475,6 @@ async def control_kasa(sid, data):
              await sio.emit('error', {'msg': f"Failed to control device {ip}"})
 
     except Exception as e:
-         print(f"Error controlling kasa: {e}")
          print(f"Error controlling kasa: {e}")
          await sio.emit('error', {'msg': f"Kasa Control Error: {str(e)}"})
 
