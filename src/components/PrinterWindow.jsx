@@ -10,8 +10,9 @@ const PrinterWindow = ({
     onMouseDown
 }) => {
     const [isDiscovering, setIsDiscovering] = useState(false);
-    const [printers, setPrinters] = useState([]); // [{ name, host, port, printer_type, status: {...} }]
+    const [printers, setPrinters] = useState([]); // [{ name, host, port, printer_type, status: {...}, camera_url: ... }]
     const [selectedPrinter, setSelectedPrinter] = useState(null);
+    const [slicingProgress, setSlicingProgress] = useState({ percent: 0, message: '', active: false });
 
     // Initial discovery on mount
     useEffect(() => {
@@ -29,11 +30,30 @@ const PrinterWindow = ({
                     p.name === data.printer ? { ...p, status: data } : p
                 ));
             });
+
+            socket.on('slicing_progress', (data) => {
+                setSlicingProgress({
+                    percent: data.percent,
+                    message: data.message,
+                    active: data.percent < 100
+                });
+            });
+
+            socket.on('print_result', (result) => {
+                // Reset slicing when print starts or fails
+                if (result.success) {
+                    setSlicingProgress({ percent: 100, message: 'Done', active: false });
+                } else {
+                    setSlicingProgress({ percent: 0, message: 'Failed', active: false });
+                }
+            });
         }
         return () => {
             if (socket) {
                 socket.off('printer_list');
                 socket.off('print_status_update');
+                socket.off('slicing_progress');
+                socket.off('print_result');
             }
         };
     }, [socket]);
@@ -96,36 +116,51 @@ const PrinterWindow = ({
                 {/* Manual Add Section */}
                 <div className="mb-4 p-3 bg-white/5 border border-white/10 rounded-lg">
                     <div className="text-[10px] uppercase text-white/40 font-bold mb-2 tracking-wider">Manual Add</div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col gap-2">
                         <input
+                            id="printer-name-input"
                             type="text"
-                            placeholder="IP Address (e.g. 192.168.1.50)"
-                            className="flex-1 bg-black/50 border border-white/10 rounded px-2 py-1 text-xs text-green-100 focus:border-green-500/50 outline-none placeholder:text-white/20"
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    const ip = e.target.value.trim();
+                            placeholder="Printer Name (e.g. Creality K1)"
+                            className="w-full bg-black/50 border border-white/10 rounded px-2 py-1 text-xs text-green-100 focus:border-green-500/50 outline-none placeholder:text-white/20"
+                        />
+                        <div className="flex gap-2">
+                            <input
+                                id="printer-ip-input"
+                                type="text"
+                                placeholder="IP Address (e.g. 192.168.1.50)"
+                                className="flex-1 bg-black/50 border border-white/10 rounded px-2 py-1 text-xs text-green-100 focus:border-green-500/50 outline-none placeholder:text-white/20"
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        const ip = e.target.value.trim();
+                                        const nameInput = document.getElementById('printer-name-input');
+                                        const name = nameInput?.value.trim() || ip;
+                                        if (ip) {
+                                            socket.emit('add_printer', { host: ip, name: name, type: 'moonraker' });
+                                            e.target.value = '';
+                                            if (nameInput) nameInput.value = '';
+                                            setIsDiscovering(true);
+                                        }
+                                    }
+                                }}
+                            />
+                            <button
+                                className="bg-green-500/20 hover:bg-green-500/30 text-green-400 text-xs px-3 rounded transition-colors"
+                                onClick={() => {
+                                    const ipInput = document.getElementById('printer-ip-input');
+                                    const nameInput = document.getElementById('printer-name-input');
+                                    const ip = ipInput?.value.trim();
+                                    const name = nameInput?.value.trim() || ip;
                                     if (ip) {
-                                        socket.emit('add_printer', { host: ip, type: 'moonraker' }); // Default to Moonraker as requested
-                                        e.target.value = '';
+                                        socket.emit('add_printer', { host: ip, name: name, type: 'moonraker' });
+                                        if (ipInput) ipInput.value = '';
+                                        if (nameInput) nameInput.value = '';
                                         setIsDiscovering(true);
                                     }
-                                }
-                            }}
-                        />
-                        <button
-                            className="bg-green-500/20 hover:bg-green-500/30 text-green-400 text-xs px-3 rounded transition-colors"
-                            onClick={(e) => {
-                                const input = e.currentTarget.previousSibling;
-                                const ip = input.value.trim();
-                                if (ip) {
-                                    socket.emit('add_printer', { host: ip, type: 'moonraker' });
-                                    input.value = '';
-                                    setIsDiscovering(true);
-                                }
-                            }}
-                        >
-                            Add
-                        </button>
+                                }}
+                            >
+                                Add
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -142,6 +177,37 @@ const PrinterWindow = ({
                     </div>
                 ) : (
                     <div className="space-y-3">
+                        {/* Global Pipeline Visualizer (when slicing is active) */}
+                        {slicingProgress.active && (
+                            <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                                <div className="text-[10px] uppercase text-blue-300 font-bold mb-2 tracking-wider flex justify-between">
+                                    <span>Preparation Pipeline</span>
+                                    <span>{slicingProgress.percent}%</span>
+                                </div>
+                                {/* Pipeline Stages */}
+                                <div className="flex items-center gap-2 mb-2 text-[10px] text-white/40">
+                                    <div className={`flex items-center gap-1 ${slicingProgress.percent < 100 ? 'text-green-400 font-bold' : ''}`}>
+                                        <div className={`w-2 h-2 rounded-full ${slicingProgress.percent < 100 ? 'bg-green-500 animate-pulse' : 'bg-white/20'}`}></div>
+                                        Slicing
+                                    </div>
+                                    <div className="h-[1px] w-4 bg-white/10"></div>
+                                    <div className="flex items-center gap-1">
+                                        <div className="w-2 h-2 rounded-full bg-white/20"></div>
+                                        Printing
+                                    </div>
+                                </div>
+                                <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full bg-blue-500 transition-all duration-300"
+                                        style={{ width: `${slicingProgress.percent}%` }}
+                                    />
+                                </div>
+                                <div className="text-[10px] text-blue-200/60 mt-1 truncate">
+                                    {slicingProgress.message}
+                                </div>
+                            </div>
+                        )}
+
                         {printers.map((printer, idx) => (
                             <div key={idx} className="bg-white/5 border border-white/10 rounded-lg p-3 hover:border-green-500/30 transition-all">
                                 <div className="flex justify-between items-start mb-2">
@@ -155,6 +221,24 @@ const PrinterWindow = ({
                                         </div>
                                     )}
                                 </div>
+
+                                {/* Camera Feed */}
+                                {printer.camera_url && (
+                                    <div className="mb-3 rounded overflow-hidden border border-white/10 bg-black relative aspect-video">
+                                        <img
+                                            src={printer.camera_url}
+                                            alt="Printer Camera"
+                                            className="w-full h-full object-cover"
+                                            onError={(e) => {
+                                                e.target.style.display = 'none';
+                                                e.target.nextSibling.style.display = 'flex';
+                                            }}
+                                        />
+                                        <div className="hidden absolute inset-0 flex items-center justify-center text-white/20 text-xs">
+                                            Camera Stream Unavailable
+                                        </div>
+                                    </div>
+                                )}
 
                                 {printer.status && (
                                     <div className="space-y-2 mt-3 pt-3 border-t border-white/5">

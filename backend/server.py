@@ -260,7 +260,8 @@ async def start_audio(sid, data=None):
                     name=p.get("name", p["host"]),
                     host=p["host"],
                     port=p.get("port", 80),
-                    printer_type=p.get("type", "moonraker")
+                    printer_type=p.get("type", "moonraker"),
+                    camera_url=p.get("camera_url")
                 )
         
         # Start Printer Monitor
@@ -562,14 +563,16 @@ async def add_printer(sid, data):
         
     try:
         # Add manually
-        printer = audio_loop.printer_agent.add_printer_manually(name, host, port=port, printer_type=ptype)
+        camera_url = data.get('camera_url')
+        printer = audio_loop.printer_agent.add_printer_manually(name, host, port=port, printer_type=ptype, camera_url=camera_url)
         
         # Save to settings
         new_printer_config = {
             "name": name,
             "host": host,
             "port": port,
-            "type": ptype
+            "type": ptype,
+            "camera_url": camera_url
         }
         
         # Check if already exists to avoid duplicates
@@ -634,7 +637,29 @@ async def print_stl(sid, data):
              
         await sio.emit('status', {'msg': f"Preparing print for {printer_name}..."})
         
-        result = await audio_loop.printer_agent.print_stl(stl_path, printer_name, profile)
+        # Progress Callback
+        async def on_slicing_progress(percent, message):
+            await sio.emit('slicing_progress', {
+                'printer': printer_name,
+                'percent': percent,
+                'message': message
+            })
+            if percent < 100:
+                 await sio.emit('status', {'msg': f"Slicing: {percent}%"})
+        
+        # Get current project path for resolution
+        current_project_path = None
+        if audio_loop and audio_loop.project_manager:
+            current_project_path = str(audio_loop.project_manager.get_current_project_path())
+            print(f"[SERVER DEBUG] Using project path: {current_project_path}")
+
+        result = await audio_loop.printer_agent.print_stl(
+            stl_path, 
+            printer_name, 
+            profile,
+            progress_callback=on_slicing_progress,
+            root_path=current_project_path
+        )
         
         await sio.emit('print_result', result)
         await sio.emit('status', {'msg': f"Print Job: {result.get('status', 'unknown')}"})
@@ -642,6 +667,21 @@ async def print_stl(sid, data):
     except Exception as e:
         print(f"Error printing STL: {e}")
         await sio.emit('error', {'msg': f"Print Failed: {str(e)}"})
+
+@sio.event
+async def get_slicer_profiles(sid):
+    """Get available OrcaSlicer profiles for manual selection."""
+    print("Received get_slicer_profiles request")
+    if not audio_loop or not audio_loop.printer_agent:
+        await sio.emit('error', {'msg': "Printer Agent not available"})
+        return
+    
+    try:
+        profiles = audio_loop.printer_agent.get_available_profiles()
+        await sio.emit('slicer_profiles', profiles)
+    except Exception as e:
+        print(f"Error getting slicer profiles: {e}")
+        await sio.emit('error', {'msg': f"Failed to get profiles: {str(e)}"})
 
 @sio.event
 async def control_kasa(sid, data):

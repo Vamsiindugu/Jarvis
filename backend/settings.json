@@ -19,15 +19,15 @@
     },
     "printers": [
         {
-            "name": "10.0.0.34",
+            "name": "Creality K1",
             "host": "10.0.0.34",
             "port": 7125,
             "type": "moonraker"
         },
         {
-            "name": "10.0.0.142",
+            "name": "Creality K1 SE",
             "host": "10.0.0.142",
-            "port": 80,
+            "port": 7125,
             "type": "moonraker"
         }
     ]

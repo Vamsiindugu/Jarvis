@@ -35,6 +35,7 @@ class Printer:
     port: int
     printer_type: PrinterType
     api_key: Optional[str] = None
+    camera_url: Optional[str] = None
     
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -106,11 +107,191 @@ class PrinterAgent:
         self.profiles_dir = profiles_dir
         self._zeroconf: Optional[Zeroconf] = None
         
-        # Detect PrusaSlicer path
+        # Detect slicer path and profiles directory
         self.slicer_path = self._detect_slicer_path()
+        self._orca_profiles_dir = self._detect_orca_profiles_dir()
         
         # Ensure profiles directory exists
         os.makedirs(profiles_dir, exist_ok=True)
+    
+    def _detect_orca_profiles_dir(self) -> Optional[str]:
+        """Detect OrcaSlicer profiles directory."""
+        system = platform.system()
+        
+        if system == "Darwin":  # macOS
+            base = os.path.expanduser("~/Library/Application Support/OrcaSlicer")
+        elif system == "Windows":
+            base = os.path.join(os.environ.get("APPDATA", ""), "OrcaSlicer")
+        else:  # Linux
+            base = os.path.expanduser("~/.config/OrcaSlicer")
+        
+        if os.path.isdir(base):
+            print(f"[PRINTER] Found OrcaSlicer profiles at: {base}")
+            return base
+        
+        return None
+    
+    def get_available_profiles(self) -> Dict[str, List[str]]:
+        """
+        Get all available OrcaSlicer profiles from the system folder.
+        Returns dict with 'machines', 'processes', 'filaments' lists.
+        """
+        profiles = {"machines": [], "processes": [], "filaments": []}
+        
+        if not self._orca_profiles_dir:
+            return profiles
+        
+        system_dir = os.path.join(self._orca_profiles_dir, "system")
+        if not os.path.isdir(system_dir):
+            return profiles
+        
+        # Scan all vendor folders (Creality, Custom, etc.)
+        for vendor in os.listdir(system_dir):
+            vendor_path = os.path.join(system_dir, vendor)
+            if not os.path.isdir(vendor_path):
+                continue
+            
+            # Machine profiles
+            machine_dir = os.path.join(vendor_path, "machine")
+            if os.path.isdir(machine_dir):
+                for f in os.listdir(machine_dir):
+                    if f.endswith(".json"):
+                        profiles["machines"].append(f"system/{vendor}/machine/{f}")
+            
+            # Process profiles
+            process_dir = os.path.join(vendor_path, "process")
+            if os.path.isdir(process_dir):
+                for f in os.listdir(process_dir):
+                    if f.endswith(".json"):
+                        profiles["processes"].append(f"system/{vendor}/process/{f}")
+            
+            # Filament profiles
+            filament_dir = os.path.join(vendor_path, "filament")
+            if os.path.isdir(filament_dir):
+                for f in os.listdir(filament_dir):
+                    if f.endswith(".json"):
+                        profiles["filaments"].append(f"system/{vendor}/filament/{f}")
+        
+        return profiles
+    
+    def _find_matching_profile(self, printer_name: str, profile_type: str) -> Optional[str]:
+        """
+        Find a matching profile for a printer by name.
+        profile_type: 'machine', 'process', or 'filament'
+        """
+        if not self._orca_profiles_dir:
+            return None
+        
+        # Normalize printer name for matching
+        # e.g., "Creality K1" -> search for "k1"
+        search_terms = printer_name.lower().split()
+        
+        # Common brand keywords to identify vendor folder
+        vendor_map = {
+            "creality": "Creality",
+            "ender": "Creality",
+            "cr-": "Creality",
+            "k1": "Creality",
+        }
+        
+        # Try to identify vendor
+        vendor = None
+        for term in search_terms:
+            for key, val in vendor_map.items():
+                if key in term:
+                    vendor = val
+                    break
+            if vendor:
+                break
+        
+        if not vendor:
+            vendor = "Creality"  # Default fallback
+        
+        system_dir = os.path.join(self._orca_profiles_dir, "system", vendor)
+        if not os.path.isdir(system_dir):
+            print(f"[PRINTER] Vendor folder not found: {vendor}")
+            return None
+        
+        target_dir = os.path.join(system_dir, profile_type)
+        if not os.path.isdir(target_dir):
+            return None
+        
+        # Score-based matching
+        best_match = None
+        best_score = 0
+        
+        for filename in os.listdir(target_dir):
+            if not filename.endswith(".json"):
+                continue
+            
+            name_lower = filename.lower()
+            score = 0
+            
+            # Score based on matching search terms
+            for term in search_terms:
+                if term in name_lower:
+                    score += 10
+                    # Bonus for exact model match at word boundary
+                    # e.g., "k1 " or "k1." matches but "k1c" should score lower
+                    if profile_type == "machine":
+                        # Check if there's a character after the term that extends it (like C in K1C)
+                        idx = name_lower.find(term)
+                        if idx >= 0:
+                            after_idx = idx + len(term)
+                            if after_idx < len(name_lower):
+                                next_char = name_lower[after_idx]
+                                if next_char.isalpha():
+                                    # This is a variant like K1C - penalize it
+                                    score -= 8
+                                elif next_char in ' .(-':
+                                    # Direct match followed by delimiter - bonus
+                                    score += 5
+            
+            # Bonus for "0.4 nozzle" (most common)
+            if "0.4" in name_lower:
+                score += 2
+            
+            # Bonus for "standard" or "optimal" process profiles
+            if profile_type == "process":
+                if "standard" in name_lower:
+                    score += 5
+                elif "optimal" in name_lower:
+                    score += 3
+            
+            # Bonus for generic PLA filament (non-silk preferred for general use)
+            if profile_type == "filament":
+                if "pla" in name_lower and "generic" in name_lower:
+                    score += 5
+                    # Penalize specialty variants
+                    if "-cf" in name_lower or "-gf" in name_lower:
+                        score -= 5  # Carbon fiber / glass fiber variants
+                    if "silk" in name_lower or "matte" in name_lower:
+                        score -= 2  # Specialty finishes
+                    if "high speed" in name_lower:
+                        score -= 1  # Less common
+                    # Plain PLA gets a bonus
+                    if "@k1" in name_lower and "-" not in name_lower.split("pla")[-1].split("@")[0]:
+                        score += 3  # Plain PLA for K1
+            
+            if score > best_score:
+                best_score = score
+                best_match = os.path.join(target_dir, filename)
+        
+        if best_match:
+            print(f"[PRINTER] Matched {profile_type} profile: {os.path.basename(best_match)} (score: {best_score})")
+        
+        return best_match
+    
+    def get_profiles_for_printer(self, printer_name: str) -> Dict[str, Optional[str]]:
+        """
+        Auto-detect suitable profiles for a given printer name.
+        Returns dict with 'machine', 'process', 'filament' paths.
+        """
+        return {
+            "machine": self._find_matching_profile(printer_name, "machine"),
+            "process": self._find_matching_profile(printer_name, "process"),
+            "filament": self._find_matching_profile(printer_name, "filament"),
+        }
     
     def _detect_slicer_path(self) -> Optional[str]:
         """Detect OrcaSlicer or PrusaSlicer installation path."""
@@ -200,6 +381,14 @@ class PrinterAgent:
                     printer.printer_type = ptype
                     print(f"[PRINTER] Identified {printer.name} as {ptype.value}")
         
+        # PROBE CAMERAS
+        for printer in listener.printers:
+            if not printer.camera_url:
+                # Try discovery
+                cam_url = await self._probe_camera(printer.host, printer.port)
+                if cam_url:
+                    printer.camera_url = cam_url
+        
         # Store discovered printers
         for printer in listener.printers:
             # Avoid duplicates if we found same host on multiple services
@@ -264,12 +453,46 @@ class PrinterAgent:
             print(f"[PRINTER] Probe error for {host}:{port}: {e}")
         
         return PrinterType.UNKNOWN
+
+    async def _probe_camera(self, host: str, port: int) -> Optional[str]:
+        """Probe for common camera stream URLs."""
+        # Common stream paths
+        paths = [
+            "/webcam/?action=stream",      # OctoPrint / mjpg-streamer default
+            "/webcam/stream",              # Some Klipper setups
+            "/camera/stream",
+            "/stream",
+            ":8080/?action=stream",        # mjpg-streamer standalone port
+        ]
+        
+        timeout = aiohttp.ClientTimeout(total=2.0, connect=1.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            for path in paths:
+                try:
+                    target = path if path.startswith(":") else f":{port}{path}"
+                    # Handle raw port case
+                    if target.startswith(":"):
+                        url = f"http://{host}{target}"
+                    else:
+                        url = f"http://{host}{target}"
+                        
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            # Verify content type is a stream
+                            ctype = resp.headers.get("Content-Type", "")
+                            if "multipart/x-mixed-replace" in ctype or "image" in ctype:
+                                print(f"[PRINTER] Found Camera: {url}")
+                                return url
+                except:
+                    continue
+        return None
     
     def add_printer_manually(self, name: str, host: str, port: int = 80, 
-                             printer_type: str = "octoprint", api_key: Optional[str] = None) -> Printer:
+                             printer_type: str = "octoprint", api_key: Optional[str] = None,
+                             camera_url: Optional[str] = None) -> Printer:
         """Manually add a printer (useful when mDNS discovery fails)."""
         ptype = PrinterType(printer_type) if printer_type in [e.value for e in PrinterType] else PrinterType.UNKNOWN
-        printer = Printer(name=name, host=host, port=port, printer_type=ptype, api_key=api_key)
+        printer = Printer(name=name, host=host, port=port, printer_type=ptype, api_key=api_key, camera_url=camera_url)
         self.printers[host] = printer
         print(f"[PRINTER] Manually added: {name} at {host}:{port}")
         return printer
@@ -287,57 +510,215 @@ class PrinterAgent:
         
         return None
     
+    def _resolve_file_path(self, path: str, root_path: Optional[str] = None) -> Optional[str]:
+        """Resolve file path by checking common locations."""
+        # 1. Check if absolute path exists
+        if os.path.isabs(path) and os.path.exists(path):
+            return path
+            
+        common_paths = []
+        
+        # 2. Check relative to provided root path (Project Directory)
+        if root_path:
+            common_paths.append(os.path.join(root_path, path))
+            # Also check cad subfolder in root if not already in path
+            if not path.startswith("cad/"):
+                    common_paths.append(os.path.join(root_path, "cad", path))
+
+        # 3. Check relative to backend/current dir
+        common_paths.append(path)
+        basename = os.path.basename(path)
+        
+        # 4. Check other heuristics
+        common_paths.extend([
+            os.path.join("..", basename),   # parent root
+            os.path.join("cad", basename),  # cad subdir of backend? 
+            os.path.join("..", "cad", basename), # cad subdir of root
+            "output.stl",
+            "../output.stl"
+        ])
+        
+        for p in common_paths:
+            if os.path.exists(p):
+                print(f"[PRINTER] Resolved {path} -> {p}")
+                return p
+        
+        return None
+
     async def slice_stl(self, stl_path: str, output_path: Optional[str] = None,
-                        profile_path: Optional[str] = None) -> Optional[str]:
+                        profile_path: Optional[str] = None, 
+                        progress_callback: Optional[Any] = None,
+                        root_path: Optional[str] = None,
+                        printer_name: Optional[str] = None) -> Optional[str]:
         """
-        Slice an STL file to G-code using PrusaSlicer CLI.
+        Slice an STL file to G-code using OrcaSlicer/PrusaSlicer CLI.
         
         Args:
             stl_path: Path to input STL file
             output_path: Optional output G-code path (default: same dir as STL)
-            profile_path: Optional path to .ini profile file
+            profile_path: Optional path to .ini profile file (legacy)
+            root_path: Optional root directory to resolve relative paths
+            printer_name: Optional printer name for auto-detecting profiles
         
         Returns:
             Path to generated G-code file, or None on failure
         """
         if not self.slicer_path:
-            print("[PRINTER] Error: PrusaSlicer not found")
+            print("[PRINTER] Error: Slicer not found")
             return None
         
-        if not os.path.exists(stl_path):
-            print(f"[PRINTER] Error: STL file not found: {stl_path}")
+        # Robust path resolution
+        resolved_path = self._resolve_file_path(stl_path, root_path)
+        if not resolved_path:
+            print(f"[PRINTER] Error: STL file not found: {stl_path} (root: {root_path})")
             return None
+        stl_path = resolved_path
         
         # Default output path
         if not output_path:
             output_path = stl_path.rsplit('.', 1)[0] + ".gcode"
         
         # Build command
-        cmd = [
-            self.slicer_path,
-            "--export-gcode",
-            "--output", output_path,
-            stl_path
-        ]
+        is_orca = "OrcaSlicer" in self.slicer_path
         
-        # Add profile if specified
+        if is_orca:
+            # OrcaSlicer CLI: orca-slicer [OPTIONS] [file.stl]
+            output_dir = os.path.dirname(output_path)
+            
+            # FIX: Handle empty output_dir (when output_path has no directory prefix)
+            if not output_dir:
+                output_dir = os.path.dirname(stl_path) or "."
+            
+            cmd = [
+                self.slicer_path,
+                "--slice", "0",
+                "--outputdir", output_dir,
+            ]
+            
+            # Auto-detect profiles if printer_name is provided
+            profiles = None
+            if printer_name:
+                profiles = self.get_profiles_for_printer(printer_name)
+            
+            # Build settings string: "machine.json;process.json"
+            settings_files = []
+            if profiles:
+                if profiles.get("machine"):
+                    settings_files.append(profiles["machine"])
+                if profiles.get("process"):
+                    settings_files.append(profiles["process"])
+            
+            # Add --load-settings if we have profiles
+            if settings_files:
+                cmd.extend(["--load-settings", ";".join(settings_files)])
+                print(f"[PRINTER] Using settings: {[os.path.basename(f) for f in settings_files]}")
+            
+            # Add --load-filaments if we have filament profile
+            if profiles and profiles.get("filament"):
+                cmd.extend(["--load-filaments", profiles["filament"]])
+                print(f"[PRINTER] Using filament: {os.path.basename(profiles['filament'])}")
+            
+            # Add STL file at the end
+            cmd.append(stl_path)
+            
+        else:
+            # PrusaSlicer CLI
+            cmd = [
+                self.slicer_path,
+                "--export-gcode",
+                "--output", output_path,
+                stl_path
+            ]
+        
+        # Add legacy profile if specified (for backward compatibility)
         if profile_path and os.path.exists(profile_path):
-            cmd.insert(1, "--load")
-            cmd.insert(2, profile_path)
+            if is_orca:
+                # Append to existing settings
+                cmd_settings_idx = None
+                for i, arg in enumerate(cmd):
+                    if arg == "--load-settings":
+                        cmd_settings_idx = i + 1
+                        break
+                if cmd_settings_idx and cmd_settings_idx < len(cmd):
+                    cmd[cmd_settings_idx] += ";" + profile_path
+                else:
+                    cmd.insert(-1, "--load-settings")
+                    cmd.insert(-1, profile_path)
+            else:
+                cmd.insert(1, "--load")
+                cmd.insert(2, profile_path)
         
         print(f"[PRINTER] Slicing: {stl_path}")
         print(f"[PRINTER] Command: {' '.join(cmd)}")
         
         try:
-            result = await asyncio.to_thread(
-                subprocess.run, cmd, capture_output=True, text=True, timeout=300
+            # Use subprocess_exec to read stdout in real-time
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
             
-            if result.returncode == 0:
+            # Read stdout line by line
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                
+                line_str = line.decode().strip()
+                if line_str:
+                    # PrusaSlicer/Orca progress output looks like "15% => Processing..." or just "Processing... 15%"
+                    # We look for simple percentages
+                    if "%" in line_str:
+                        try:
+                            # Extract percentage
+                            # This is a simple heuristic
+                            parts = line_str.replace("=>", " ").split()
+                            for p in parts:
+                                if p.endswith("%"):
+                                    pct = int(p[:-1])
+                                    if progress_callback:
+                                        await progress_callback(pct, line_str)
+                                    break
+                        except:
+                            pass
+            
+            await process.wait()
+            
+            if process.returncode == 0:
+                # Handle OrcaSlicer output naming
+                # OrcaSlicer outputs as "plate_1.gcode", "plate_2.gcode" etc.
+                if is_orca:
+                    output_dir = os.path.dirname(output_path) or "."
+                    
+                    # Look for plate_*.gcode files (OrcaSlicer naming convention)
+                    import glob
+                    gcode_files = glob.glob(os.path.join(output_dir, "plate_*.gcode"))
+                    
+                    if not gcode_files:
+                        # Fallback: look for {basename}.gcode
+                        base_name = os.path.splitext(os.path.basename(stl_path))[0]
+                        expected_gcode = os.path.join(output_dir, f"{base_name}.gcode")
+                        if os.path.exists(expected_gcode):
+                            gcode_files = [expected_gcode]
+                    
+                    if gcode_files:
+                        # Use the first (or only) plate file
+                        actual_gcode = gcode_files[0]
+                        if actual_gcode != output_path:
+                            import shutil
+                            shutil.move(actual_gcode, output_path)
+                            print(f"[PRINTER] Renamed {os.path.basename(actual_gcode)} -> {os.path.basename(output_path)}")
+                    elif not os.path.exists(output_path):
+                        print(f"[PRINTER] Warning: Expected G-code not found in {output_dir}")
+
                 print(f"[PRINTER] Slicing complete: {output_path}")
+                if progress_callback:
+                    await progress_callback(100, "Slicing Complete")
                 return output_path
             else:
-                print(f"[PRINTER] Slicing failed: {result.stderr}")
+                stderr = await process.stderr.read()
+                print(f"[PRINTER] Slicing failed: {stderr.decode()}")
                 return None
                 
         except subprocess.TimeoutExpired:
@@ -546,7 +927,9 @@ class PrinterAgent:
             )
     
     async def print_stl(self, stl_path: str, target: str, 
-                        profile: Optional[str] = None) -> Dict[str, Any]:
+                        profile: Optional[str] = None,
+                        progress_callback: Optional[Any] = None,
+                        root_path: Optional[str] = None) -> Dict[str, Any]:
         """
         Complete workflow: Slice STL and send to printer.
         
@@ -558,23 +941,18 @@ class PrinterAgent:
         Returns:
             Dict with success status and message
         """
+
         # Resolve 'current' to actual path if needed
         if stl_path.lower() == "current":
             # Look for output.stl in common locations
-            possible_paths = [
-                "output.stl",
-                "backend/output.stl",
-                "../output.stl"
-            ]
-            stl_path = None
-            for p in possible_paths:
-                if os.path.exists(p):
-                    stl_path = p
-                    break
-            if not stl_path:
-                return {"success": False, "message": "No current STL file found"}
+            # We defer this to slice_stl's resolution now, but we need a NAME to start with
+            stl_path = "output.stl" 
         
-        # Resolve profile path
+        # Resolve printer first to get its name for profile matching
+        printer = self._resolve_printer(target)
+        printer_name = printer.name if printer else target
+        
+        # Resolve profile path (legacy support)
         profile_path = None
         if profile:
             profile_path = os.path.join(self.profiles_dir, f"{profile}.ini")
@@ -582,10 +960,17 @@ class PrinterAgent:
                 print(f"[PRINTER] Warning: Profile not found: {profile_path}")
                 profile_path = None
         
-        # Step 1: Slice
-        gcode_path = await self.slice_stl(stl_path, profile_path=profile_path)
+        # Step 1: Slice (with auto-profile detection using printer_name)
+        print(f"[PRINTER] Starting slice for printer: {printer_name}")
+        gcode_path = await self.slice_stl(
+            stl_path, 
+            profile_path=profile_path, 
+            progress_callback=progress_callback, 
+            root_path=root_path,
+            printer_name=printer_name
+        )
         if not gcode_path:
-            return {"success": False, "message": "Slicing failed"}
+            return {"success": False, "message": "Slicing failed. Check slicer profiles."}
         
         # Step 2: Upload and start print
         success = await self.upload_gcode(target, gcode_path, start_print=True)

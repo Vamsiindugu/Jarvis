@@ -851,10 +851,17 @@ class AudioLoop:
                                     
                                     # Resolve 'current' to project STL
                                     if stl_path.lower() == "current":
-                                        project_path = self.project_manager.get_current_project_path()
-                                        stl_path = str(project_path / "output.stl")
+                                        stl_path = "output.stl" # Let printer agent resolve it in root_path
+
+                                    # Get current project path
+                                    project_path = str(self.project_manager.get_current_project_path())
                                     
-                                    result = await self.printer_agent.print_stl(stl_path, printer, profile)
+                                    result = await self.printer_agent.print_stl(
+                                        stl_path, 
+                                        printer, 
+                                        profile, 
+                                        root_path=project_path
+                                    )
                                     result_str = result.get("message", "Unknown result")
                                     
                                     function_response = types.FunctionResponse(
