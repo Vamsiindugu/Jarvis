@@ -18,6 +18,7 @@ ADA V2 is a sophisticated AI assistant designed for multimodal interaction, runn
 |---------|-------------|------------|
 | **🗣️ Low-Latency Voice** | Real-time conversation with interrupt handling | Gemini 2.5 Native Audio |
 | **🧊 Parametric CAD** | Editable 3D model generation from voice prompts | `build123d` → STL |
+| **🖨️ 3D Printing** | Slicing and wireless print job submission | OrcaSlicer + Moonraker/OctoPrint |
 | **🖐️ Minority Report UI** | Gesture-controlled window manipulation | MediaPipe Hand Tracking |
 | **👁️ Face Authentication** | Secure local biometric login | MediaPipe Face Landmarker |
 | **🌐 Web Agent** | Autonomous browser automation | Playwright + Chromium |
@@ -197,7 +198,29 @@ The system creates a `settings.json` file on first run. You can modify this to c
 
 ---
 
-### 5. 🔑 Gemini API Key Setup
+### 5. 🖨️ 3D Printer Setup
+ADA V2 can slice STL files and send them directly to your 3D printer.
+
+**Supported Hardware:**
+- **Klipper/Moonraker** (Creality K1, Voron, etc.)
+- **OctoPrint** instances
+- **PrusaLink** (Experimental)
+
+**Step 1: Install Slicer**
+ADA uses **OrcaSlicer** (recommended) or PrusaSlicer to generate G-code.
+1. Download and install [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer).
+2. Run it once to ensure profiles are created.
+3. ADA automatically detects the installation path.
+
+**Step 2: Connect Printer**
+1. Ensure your printer and computer are on the **same Wi-Fi network**.
+2. Open the **Printer Window** in ADA (Cube icon).
+3. ADA automatically scans for printers using mDNS.
+4. **Manual Connection**: If your printer isn't found, use the "Add Printer" button and enter the IP address (e.g., `192.168.1.50`).
+
+---
+
+### 6. 🔑 Gemini API Key Setup
 ADA uses Google's Gemini API for voice and intelligence. You need a free API key.
 
 1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey).
@@ -272,6 +295,11 @@ npm run dev
 ### 🌐 Web Agent
 - **Prompt**: "Go to Amazon and find a USB-C cable under $10."
 - **Note**: The agent will auto-scroll, click, and type. Do not interfere with the browser window while it runs.
+
+### 🖨️ Printing & Slicing
+- **Auto-Discovery**: ADA automatically finds printers on your network.
+- **Slicing**: Click "Slice & Print" on any generated 3D model.
+- **Profiles**: ADA intelligently selects the correct OrcaSlicer profile based on your printer's name (e.g., "Creality K1").
 
 ---
 
