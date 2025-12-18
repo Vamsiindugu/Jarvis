@@ -16,6 +16,43 @@
         "control_light": false,
         "list_smart_devices": false
     },
-    "printers": [],
+    "printers": [
+        {
+            "name": "Creality K1",
+            "host": "10.0.0.142",
+            "port": 80,
+            "type": "moonraker",
+            "camera_url": null
+        },
+        {
+            "name": "Creality K1 SE",
+            "host": "10.0.0.34",
+            "port": 80,
+            "type": "moonraker",
+            "camera_url": null
+        }
+    ],
+    "kasa_devices": [
+        {
+            "ip": "10.0.0.52",
+            "alias": "Left Office Light ",
+            "model": "KL135"
+        },
+        {
+            "ip": "10.0.0.83",
+            "alias": "Right Office Light",
+            "model": "KL135"
+        },
+        {
+            "ip": "10.0.0.49",
+            "alias": "Right Room Light",
+            "model": "KL135"
+        },
+        {
+            "ip": "10.0.0.116",
+            "alias": "Left Room Light",
+            "model": "KL135"
+        }
+    ],
     "camera_flipped": false
 }

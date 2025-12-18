@@ -367,6 +367,10 @@ function App() {
                 setIsCameraFlipped(settings.camera_flipped);
             }
         });
+        socket.on('error', (data) => {
+            console.error("Socket Error:", data);
+            addMessage('System', `Error: ${data.msg}`);
+        });
         socket.on('cad_data', (data) => {
             console.log("Received CAD Data:", data);
             setCadData(data);
@@ -627,6 +631,7 @@ function App() {
             socket.off('printer_list');
             socket.off('slicing_progress');
             socket.off('print_status_update');
+            socket.off('error');
 
             stopMicVisualizer();
             stopVideo();

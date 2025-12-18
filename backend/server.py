@@ -60,6 +60,7 @@ DEFAULT_SETTINGS = {
         "list_projects": True
     },
     "printers": [], # List of {host, port, name, type}
+    "kasa_devices": [], # List of {ip, alias, model}
     "camera_flipped": False # Invert cursor horizontal direction
 }
 
@@ -94,8 +95,13 @@ def save_settings():
 load_settings()
 
 authenticator = None
-kasa_agent = KasaAgent()
+kasa_agent = KasaAgent(known_devices=SETTINGS.get("kasa_devices"))
 # tool_permissions is now SETTINGS["tool_permissions"]
+
+@app.on_event("startup")
+async def startup_event():
+    print("[SERVER] Startup: Initializing Kasa Agent...")
+    await kasa_agent.initialize()
 
 @app.get("/status")
 async def status():
@@ -230,6 +236,17 @@ async def start_audio(sid, data=None):
         print(f"Sending Project Update: {project_name}")
         asyncio.create_task(sio.emit('project_update', {'project': project_name}))
 
+    # Callback to send Device Update to frontend
+    def on_device_update(devices):
+        # devices is a list of dicts
+        print(f"Sending Kasa Device Update: {len(devices)} devices")
+        asyncio.create_task(sio.emit('kasa_devices', devices))
+
+    # Callback to send Error to frontend
+    def on_error(msg):
+        print(f"Sending Error to frontend: {msg}")
+        asyncio.create_task(sio.emit('error', {'msg': msg}))
+
     # Initialize ADA
     try:
         print(f"Initializing AudioLoop with device_index={device_index}")
@@ -243,9 +260,12 @@ async def start_audio(sid, data=None):
             on_cad_status=on_cad_status,
             on_cad_thought=on_cad_thought,
             on_project_update=on_project_update,
+            on_device_update=on_device_update,
+            on_error=on_error,
 
             input_device_index=device_index,
-            input_device_name=device_name
+            input_device_name=device_name,
+            kasa_agent=kasa_agent
         )
         print("AudioLoop initialized successfully.")
 
@@ -421,6 +441,15 @@ async def user_input(sid, data):
             audio_loop.project_manager.log_chat("User", text)
             
         # Use the same 'send' method that worked for audio, as 'send_realtime_input' and 'send_client_content' seem unstable in this env
+        # INJECT VIDEO FRAME IF AVAILABLE (VAD-style logic for Text Input)
+        if audio_loop and audio_loop._latest_image_payload:
+            print(f"[SERVER DEBUG] Piggybacking video frame with text input.")
+            try:
+                # Send frame first
+                await audio_loop.session.send(input=audio_loop._latest_image_payload, end_of_turn=False)
+            except Exception as e:
+                print(f"[SERVER DEBUG] Failed to send piggyback frame: {e}")
+                
         await audio_loop.session.send(input=text, end_of_turn=True)
         print(f"[SERVER DEBUG] Message sent to model successfully.")
 
@@ -515,6 +544,25 @@ async def discover_kasa(sid):
         devices = await kasa_agent.discover_devices()
         await sio.emit('kasa_devices', devices)
         await sio.emit('status', {'msg': f"Found {len(devices)} Kasa devices"})
+        
+        # Save to settings
+        # devices is a list of full device info dicts. minimizing for storage.
+        saved_devices = []
+        for d in devices:
+            saved_devices.append({
+                "ip": d["ip"],
+                "alias": d["alias"],
+                "model": d["model"]
+            })
+        
+        # Merge with existing to preserve any manual overrides? 
+        # For now, just overwrite with latest scan result + previously known if we want to be fancy,
+        # but user asked for "Any new devices that are scanned are added there".
+        # A simple full persistence of current state is safest.
+        SETTINGS["kasa_devices"] = saved_devices
+        save_settings()
+        print(f"[SERVER] Saved {len(saved_devices)} Kasa devices to settings.")
+        
     except Exception as e:
         print(f"Error discovering kasa: {e}")
         await sio.emit('error', {'msg': f"Kasa Discovery Failed: {str(e)}"})

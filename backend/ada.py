@@ -10,6 +10,8 @@ import pyaudio
 import PIL.Image
 import mss
 import argparse
+import audioop
+import time
 
 from google import genai
 from google.genai import types
@@ -110,7 +112,7 @@ control_light_tool = {
         "properties": {
             "target": {
                 "type": "STRING",
-                "description": "The alias or IP address of the device to control."
+                "description": "The IP address of the device to control. Always prefer the IP address over the alias for reliability."
             },
             "action": {
                 "type": "STRING",
@@ -208,7 +210,7 @@ from kasa_agent import KasaAgent
 from printer_agent import PrinterAgent
 
 class AudioLoop:
-    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, input_device_index=None, input_device_name=None, output_device_index=None):
+    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, on_device_update=None, on_error=None, input_device_index=None, input_device_name=None, output_device_index=None, kasa_agent=None):
         self.video_mode = video_mode
         self.on_audio_data = on_audio_data
         self.on_video_frame = on_video_frame
@@ -219,6 +221,8 @@ class AudioLoop:
         self.on_cad_status = on_cad_status
         self.on_cad_thought = on_cad_thought
         self.on_project_update = on_project_update
+        self.on_device_update = on_device_update
+        self.on_error = on_error
         self.input_device_index = input_device_index
         self.input_device_name = input_device_name
         self.output_device_index = output_device_index
@@ -250,7 +254,7 @@ class AudioLoop:
         
         self.cad_agent = CadAgent(on_thought=handle_cad_thought, on_status=handle_cad_status)
         self.web_agent = WebAgent()
-        self.kasa_agent = KasaAgent()
+        self.kasa_agent = kasa_agent if kasa_agent else KasaAgent()
         self.printer_agent = PrinterAgent()
 
         self.send_text_task = None
@@ -261,6 +265,12 @@ class AudioLoop:
         self.permissions = {} # Default Empty (Will treat unset as True)
         self._pending_confirmations = {}
 
+        # Video buffering state
+        self._latest_image_payload = None
+        # VAD State
+        self._is_speaking = False
+        self._silence_start_time = None
+        
         # Initialize ProjectManager
         from project_manager import ProjectManager
         # Assuming we are running from backend/ or root? 
@@ -321,24 +331,15 @@ class AudioLoop:
             print(f"[ADA DEBUG] [ERR] Failed to clear audio queue: {e}")
 
     async def send_frame(self, frame_data):
-        if not self.out_queue:
-            return
-        # frame_data is mostly likely bytes from the frontend blob
+        # Update the latest frame payload
         if isinstance(frame_data, bytes):
             b64_data = base64.b64encode(frame_data).decode('utf-8')
         else:
-            b64_data = frame_data # Assume string/b64 already if not bytes
-            
-        # Manage Queue for Real-Time: If full, drop oldest to make room for newest
-        if self.out_queue.full():
-            try:
-                # Remove oldest item (head of queue)
-                self.out_queue.get_nowait()
-                print("[ADA DEBUG] [VIDEO] Dropped old frame to maintain real-time.")
-            except asyncio.QueueEmpty:
-                pass
-        
-        await self.out_queue.put({"mime_type": "image/jpeg", "data": b64_data})
+            b64_data = frame_data 
+
+        # Store as the designated "next frame to send"
+        self._latest_image_payload = {"mime_type": "image/jpeg", "data": b64_data}
+        # No event signal needed - listen_audio pulls it
 
     async def send_realtime(self):
         while True:
@@ -408,6 +409,10 @@ class AudioLoop:
         else:
             kwargs = {}
         
+        # VAD Constants
+        VAD_THRESHOLD = 800 # Adj based on mic sensitivity (800 is conservative for 16-bit)
+        SILENCE_DURATION = 0.5 # Seconds of silence to consider "done speaking"
+        
         while True:
             if self.paused:
                 await asyncio.sleep(0.1)
@@ -415,8 +420,41 @@ class AudioLoop:
 
             try:
                 data = await asyncio.to_thread(self.audio_stream.read, CHUNK_SIZE, **kwargs)
+                
+                # 1. Send Audio
                 if self.out_queue:
                     await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
+                
+                # 2. VAD Logic for Video
+                rms = audioop.rms(data, 2) # 2 bytes width for paInt16
+                
+                if rms > VAD_THRESHOLD:
+                    # Speech Detected
+                    self._silence_start_time = None
+                    
+                    if not self._is_speaking:
+                        # NEW Speech Utterance Started
+                        self._is_speaking = True
+                        print(f"[ADA DEBUG] [VAD] Speech Detected (RMS: {rms}). Sending Video Frame.")
+                        
+                        # Send ONE frame
+                        if self._latest_image_payload and self.out_queue:
+                            await self.out_queue.put(self._latest_image_payload)
+                        else:
+                            print(f"[ADA DEBUG] [VAD] No video frame available to send.")
+                            
+                else:
+                    # Silence
+                    if self._is_speaking:
+                        if self._silence_start_time is None:
+                            self._silence_start_time = time.time()
+                        
+                        elif time.time() - self._silence_start_time > SILENCE_DURATION:
+                            # Silence confirmed, reset state
+                            print(f"[ADA DEBUG] [VAD] Silence detected. Resetting speech state.")
+                            self._is_speaking = False
+                            self._silence_start_time = None
+
             except Exception as e:
                 print(f"Error reading audio: {e}")
                 await asyncio.sleep(0.1)
@@ -821,21 +859,47 @@ class AudioLoop:
 
                                 elif fc.name == "list_smart_devices":
                                     print(f"[ADA DEBUG] [TOOL] Tool Call: 'list_smart_devices'")
-                                    # Ensure discovery runs at least once or refreshes
-                                    devices = await self.kasa_agent.discover_devices()
-                                    # Format for model
+                                    # Use cached devices directly for speed
+                                    # devices_dict is {ip: SmartDevice}
+                                    
                                     dev_summaries = []
-                                    for d in devices:
-                                        info = f"{d['alias']} (IP: {d['ip']}, Type: {d['type']})"
-                                        if d['is_on']:
+                                    frontend_list = []
+                                    
+                                    for ip, d in self.kasa_agent.devices.items():
+                                        dev_type = "unknown"
+                                        if d.is_bulb: dev_type = "bulb"
+                                        elif d.is_plug: dev_type = "plug"
+                                        elif d.is_strip: dev_type = "strip"
+                                        elif d.is_dimmer: dev_type = "dimmer"
+                                        
+                                        # Format for Model
+                                        info = f"{d.alias} (IP: {ip}, Type: {dev_type})"
+                                        if d.is_on:
                                             info += " [ON]"
                                         else:
                                             info += " [OFF]"
                                         dev_summaries.append(info)
+                                        
+                                        # Format for Frontend
+                                        frontend_list.append({
+                                            "ip": ip,
+                                            "alias": d.alias,
+                                            "model": d.model,
+                                            "type": dev_type,
+                                            "is_on": d.is_on,
+                                            "brightness": d.brightness if d.is_bulb or d.is_dimmer else None,
+                                            "hsv": d.hsv if d.is_bulb and d.is_color else None,
+                                            "has_color": d.is_color if d.is_bulb else False,
+                                            "has_brightness": d.is_dimmable if d.is_bulb or d.is_dimmer else False
+                                        })
                                     
-                                    result_str = "No devices found."
+                                    result_str = "No devices found in cache."
                                     if dev_summaries:
-                                        result_str = "Found Devices:\n" + "\n".join(dev_summaries)
+                                        result_str = "Found Devices (Cached):\n" + "\n".join(dev_summaries)
+                                    
+                                    # Trigger frontend update
+                                    if self.on_device_update:
+                                        self.on_device_update(frontend_list)
 
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": result_str}
@@ -861,6 +925,9 @@ class AudioLoop:
                                         success = await self.kasa_agent.turn_off(target)
                                         if success:
                                             result_msg = f"Turned OFF '{target}'."
+                                    elif action == "set":
+                                        success = True
+                                        result_msg = f"Updated '{target}':"
                                     
                                     # Apply extra attributes if 'set' or if we just turned it on and want to set them too
                                     if success or action == "set":
@@ -872,6 +939,46 @@ class AudioLoop:
                                             sc = await self.kasa_agent.set_color(target, color)
                                             if sc:
                                                 result_msg += f" Set color to {color}."
+
+                                    # Notify Frontend of State Change
+                                    if success:
+                                        # We don't need full discovery, just refresh known state or push update
+                                        # But for simplicity, let's get the standard list representation
+                                        # KasaAgent updates its internal state on control, so we can rebuild the list
+                                        
+                                        # Quick rebuild of list from internal dict
+                                        updated_list = []
+                                        for ip, dev in self.kasa_agent.devices.items():
+                                            # We need to ensure we have the correct dict structure expected by frontend
+                                            # We duplicate logic from KasaAgent.discover_devices a bit, but that's okay for now or we can add a helper
+                                            # Ideally KasaAgent has a 'get_devices_list()' method.
+                                            # Use the cached objects in self.kasa_agent.devices
+                                            
+                                            dev_type = "unknown"
+                                            if dev.is_bulb: dev_type = "bulb"
+                                            elif dev.is_plug: dev_type = "plug"
+                                            elif dev.is_strip: dev_type = "strip"
+                                            elif dev.is_dimmer: dev_type = "dimmer"
+
+                                            d_info = {
+                                                "ip": ip,
+                                                "alias": dev.alias,
+                                                "model": dev.model,
+                                                "type": dev_type,
+                                                "is_on": dev.is_on,
+                                                "brightness": dev.brightness if dev.is_bulb or dev.is_dimmer else None,
+                                                "hsv": dev.hsv if dev.is_bulb and dev.is_color else None,
+                                                "has_color": dev.is_color if dev.is_bulb else False,
+                                                "has_brightness": dev.is_dimmable if dev.is_bulb or dev.is_dimmer else False
+                                            }
+                                            updated_list.append(d_info)
+                                            
+                                        if self.on_device_update:
+                                            self.on_device_update(updated_list)
+                                    else:
+                                        # Report Error
+                                        if self.on_error:
+                                            self.on_error(result_msg)
 
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": result_msg}
@@ -976,6 +1083,8 @@ class AudioLoop:
         except Exception as e:
             print(f"Error in receive_audio: {e}")
             traceback.print_exc()
+            # CRITICAL: Re-raise to crash the TaskGroup and trigger outer loop reconnect
+            raise e
 
     async def play_audio(self):
         stream = await asyncio.to_thread(
@@ -1042,6 +1151,7 @@ class AudioLoop:
 
                     tg.create_task(self.send_realtime())
                     tg.create_task(self.listen_audio())
+                    # tg.create_task(self._process_video_queue()) # Removed in favor of VAD
 
                     if self.video_mode == "camera":
                         tg.create_task(self.get_frames())

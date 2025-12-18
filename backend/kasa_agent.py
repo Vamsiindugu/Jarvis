@@ -2,21 +2,54 @@ import asyncio
 from kasa import Discover, SmartDevice, SmartBulb, SmartPlug
 
 class KasaAgent:
-    def __init__(self):
+    def __init__(self, known_devices=None):
         self.devices = {}
+        self.known_devices_config = known_devices or []
+
+    async def initialize(self):
+        """Initializes devices from the saved configuration."""
+        if self.known_devices_config:
+            print(f"[KasaAgent] Initializing {len(self.known_devices_config)} known devices...")
+            for d in self.known_devices_config:
+                ip = d.get('ip')
+                alias = d.get('alias')
+                if ip:
+                    # Create a device instance from IP
+                    asyncio.create_task(self._add_known_device(ip, alias, d))
+
+    async def _add_known_device(self, ip, alias, info):
+        """Adds a device from settings without discovery scan."""
+        try:
+            # We can't know the exact class (Bulb/Plug) without connecting, 
+            # but Discover.discover_single might work, or just SmartDevice(ip)
+            # SmartDevice is the base class.
+            dev = await Discover.discover_single(ip)
+            if dev:
+                self.devices[ip] = dev
+                print(f"[KasaAgent] Loaded known device: {dev.alias} ({ip})")
+            else:
+                 print(f"[KasaAgent] Could not connect to known device at {ip}")
+        except Exception as e:
+            print(f"[KasaAgent] Error loading known device {ip}: {e}")
 
     async def discover_devices(self):
         """Discovers devices on the local network."""
-        print("Discovering Kasa devices...")
-        found_devices = await Discover.discover()
+        print("Discovering Kasa devices (Broadcast)...")
+        # Use explicit broadcast and slightly longer timeout for Windows reliability
+        found_devices = await Discover.discover(target="255.255.255.255", timeout=5)
+        print(f"[KasaAgent] Raw discovery found {len(found_devices)} devices.")
         
-        device_list = []
-        self.devices = {}
+        # We don't wipe self.devices completely, we merge/update
+        # But if a device is NOT found, we might want to keep it if it was known?
+        # User said: "If a device that is in settings can not be found just list as not found."
+        # This implies we might want to mark them offline.
         
         for ip, dev in found_devices.items():
             await dev.update()
             self.devices[ip] = dev
             
+        device_list = []
+        for ip, dev in self.devices.items():
             # Determine type and capabilities
             dev_type = "unknown"
             if dev.is_bulb:
@@ -41,7 +74,7 @@ class KasaAgent:
             }
             device_list.append(device_info)
             
-        print(f"Found {len(device_list)} Kasa devices.")
+        print(f"Total Kasa devices (found + cached): {len(device_list)}")
         return device_list
 
     def get_device_by_alias(self, alias):
@@ -166,7 +199,6 @@ class KasaAgent:
                 return True
             except Exception as e:
                  print(f"Error setting color for {target}: {e}")
-
         return False
 
 # Standalone test
