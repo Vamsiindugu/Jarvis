@@ -664,51 +664,35 @@ class PrinterAgent:
             if progress_callback:
                 await progress_callback(5, "Starting slicer...")
             
-            # Use subprocess_exec to read stdout in real-time
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+            # Use asyncio.to_thread for Windows compatibility (asyncio.create_subprocess_exec
+            # throws NotImplementedError on Windows with certain event loop policies)
+            import subprocess
             
-            # Track progress
-            last_progress = 5
+            if progress_callback:
+                await progress_callback(10, "Running slicer...")
             
-            # Read stdout line by line
-            while True:
-                line = await process.stdout.readline()
-                if not line:
-                    break
+            try:
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    cmd,
+                    capture_output=True,
+                    text=True
+                )
                 
-                line_str = line.decode().strip()
-                if line_str:
-                    print(f"[SLICER OUTPUT] {line_str}")  # Debug logging
-                    
-                    # PrusaSlicer/Orca progress output looks like "15% => Processing..." or just "Processing... 15%"
-                    # We look for simple percentages
-                    if "%" in line_str:
-                        try:
-                            # Extract percentage
-                            # This is a simple heuristic
-                            parts = line_str.replace("=>", " ").split()
-                            for p in parts:
-                                if p.endswith("%"):
-                                    pct = int(p[:-1])
-                                    last_progress = pct
-                                    if progress_callback:
-                                        await progress_callback(pct, line_str)
-                                    break
-                        except:
-                            pass
-                    else:
-                        # Send activity updates even without percentage
-                        if progress_callback and last_progress < 90:
-                            last_progress = min(last_progress + 5, 90)
-                            await progress_callback(last_progress, line_str)
+                # Log slicer output for debugging
+                if result.stdout:
+                    for line in result.stdout.strip().split('\n'):
+                        if line:
+                            print(f"[SLICER OUTPUT] {line}")
+                
+                if progress_callback:
+                    await progress_callback(90, "Finalizing...")
+                
+            except Exception as e:
+                print(f"[PRINTER] Subprocess run failed: {e}")
+                return None
             
-            await process.wait()
-            
-            if process.returncode == 0:
+            if result.returncode == 0:
                 # Handle OrcaSlicer output naming
                 # OrcaSlicer outputs as "plate_1.gcode", "plate_2.gcode" etc.
                 if is_orca:
@@ -740,8 +724,7 @@ class PrinterAgent:
                     await progress_callback(100, "Slicing Complete")
                 return output_path
             else:
-                stderr = await process.stderr.read()
-                print(f"[PRINTER] Slicing failed: {stderr.decode()}")
+                print(f"[PRINTER] Slicing failed: {result.stderr}")
                 return None
                 
         except subprocess.TimeoutExpired:

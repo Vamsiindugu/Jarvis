@@ -246,6 +246,22 @@ Original request: {prompt}
         if os.path.exists(script_name):
             with open(script_name, "r") as f:
                 existing_code = f.read()
+            
+            # Sanitize existing code: replace any absolute temp paths with 'output.stl'
+            # This prevents the LLM from seeing/reproducing Windows paths that cause Unicode escape errors
+            import re
+            # Match both escaped (\\) and unescaped (\) Windows temp paths to output.stl
+            existing_code = re.sub(
+                r"['\"]C:\\\\?Users\\\\?[^'\"]+\\\\?output\.stl['\"]",
+                "'output.stl'",
+                existing_code
+            )
+            # Also handle forward-slash variants
+            existing_code = re.sub(
+                r"['\"]C:/Users/[^'\"]+/output\.stl['\"]",
+                "'output.stl'",
+                existing_code
+            )
         else:
              print("[CadAgent DEBUG] [WARN] No existing script found. Falling back to fresh generation.")
              return await self.generate_prototype(prompt)
@@ -327,28 +343,39 @@ Ensure you still export to 'output.stl'.
                 
                 # 3. Save to Local File
                 # Overwrite the temp file so the next iteration builds on this one
+                
+                # Fix for Windows paths in python strings: escape backslashes
+                safe_output_path = output_stl.replace("\\", "\\\\")
+                
                 with open(script_name, "w") as f:
                     # Inject output path into the script
-                    code_with_path = code.replace("output.stl", output_stl)
+                    code_with_path = code.replace("output.stl", safe_output_path)
                     f.write(code_with_path)
                     
                 print(f"[CadAgent DEBUG] [EXEC] Running local script: {script_name}")
                 
-                 # 4. Execute Locally
+                # 4. Execute Locally
                 import subprocess
                 import sys
                 
-                # Use the current Python interpreter (unified environment with build123d + mediapipe)
-                proc = await asyncio.create_subprocess_exec(
-                    sys.executable, script_name,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                
-                stdout, stderr = await proc.communicate()
+                # Use asyncio.to_thread for Windows compatibility (asyncio.create_subprocess_exec
+                # throws NotImplementedError on Windows with certain event loop policies)
+                try:
+                    proc = await asyncio.to_thread(
+                        subprocess.run,
+                        [sys.executable, script_name],
+                        capture_output=True,
+                        text=True
+                    )
+                    stdout, stderr = proc.stdout, proc.stderr
+                except Exception as e:
+                    print(f"[CadAgent DEBUG] [ERR] Subprocess run failed: {e}")
+                    proc = type('obj', (object,), {'returncode': 1})()
+                    stdout = ""
+                    stderr = str(e)
                 
                 if proc.returncode != 0:
-                    error_msg = stderr.decode()
+                    error_msg = stderr
                     print(f"[CadAgent DEBUG] [ERR] Script Execution Failed:\n{error_msg}")
                     
                     # Preparing feedback for next attempt

@@ -10,12 +10,17 @@ class KasaAgent:
         """Initializes devices from the saved configuration."""
         if self.known_devices_config:
             print(f"[KasaAgent] Initializing {len(self.known_devices_config)} known devices...")
+            tasks = []
             for d in self.known_devices_config:
+                if not d: continue
                 ip = d.get('ip')
                 alias = d.get('alias')
                 if ip:
                     # Create a device instance from IP
-                    asyncio.create_task(self._add_known_device(ip, alias, d))
+                    tasks.append(self._add_known_device(ip, alias, d))
+            
+            if tasks:
+                await asyncio.gather(*tasks)
 
     async def _add_known_device(self, ip, alias, info):
         """Adds a device from settings without discovery scan."""
@@ -25,6 +30,7 @@ class KasaAgent:
             # SmartDevice is the base class.
             dev = await Discover.discover_single(ip)
             if dev:
+                await dev.update()
                 self.devices[ip] = dev
                 print(f"[KasaAgent] Loaded known device: {dev.alias} ({ip})")
             else:

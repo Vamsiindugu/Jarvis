@@ -1071,11 +1071,29 @@ class AudioLoop:
                                     prompt = fc.args["prompt"]
                                     print(f"[ADA DEBUG] [TOOL] Tool Call: 'iterate_cad' Prompt='{prompt}'")
                                     
-                                    # Non-blocking call to CadAgent
-                                    # We wait for the coroutine to start, but the actual iteration is async stream
-                                    await self.cad_agent.iterate_prototype(prompt)
+                                    # Emit status
+                                    if self.on_cad_status:
+                                        self.on_cad_status("generating")
                                     
-                                    result_str = f"Started iterating on design with prompt: {prompt}"
+                                    # Call CadAgent to iterate on the design
+                                    cad_data = await self.cad_agent.iterate_prototype(prompt)
+                                    
+                                    if cad_data:
+                                        print(f"[ADA DEBUG] [OK] CadAgent iteration returned data successfully.")
+                                        
+                                        # Dispatch to frontend
+                                        if self.on_cad_data:
+                                            print(f"[ADA DEBUG] [SEND] Dispatching iterated CAD data to frontend...")
+                                            self.on_cad_data(cad_data)
+                                            print(f"[ADA DEBUG] [SENT] Dispatch complete.")
+                                        
+                                        # Save to Project
+                                        self.project_manager.save_cad_artifact("output.stl", f"Iteration: {prompt}")
+                                        
+                                        result_str = f"Successfully iterated design: {prompt}. The updated 3D model is now displayed."
+                                    else:
+                                        print(f"[ADA DEBUG] [ERR] CadAgent iteration returned None.")
+                                        result_str = f"Failed to iterate design with prompt: {prompt}"
                                     
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": result_str}
