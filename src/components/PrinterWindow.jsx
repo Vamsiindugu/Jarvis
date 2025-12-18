@@ -79,7 +79,7 @@ const PrinterWindow = ({
 
     return (
         <div
-            id="printer-window"
+            id="printer"
             onMouseDown={onMouseDown}
             style={{
                 position: 'absolute',
