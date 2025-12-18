@@ -106,6 +106,7 @@ class PrinterAgent:
         self.printers: Dict[str, Printer] = {}  # host -> Printer
         self.profiles_dir = profiles_dir
         self._zeroconf: Optional[Zeroconf] = None
+        self._error_tracker = set() # Track hosts with errors to prevent log spam
         
         # Detect slicer path and profiles directory
         self.slicer_path = self._detect_slicer_path()
@@ -798,22 +799,22 @@ class PrinterAgent:
                     if start_print:
                         data.add_field('print', 'true')
                     
-                    async with session.post(url, headers=headers, data=data) as resp:
-                        if resp.status in (200, 201):
-                            print(f"[PRINTER] Uploaded to OctoPrint: {filename}")
+                    async with session.post(url, data=data, headers=headers) as resp:
+                        if resp.status in (200, 201, 202, 204):
+                            print(f"[PRINTER] Uploaded {filename} to OctoPrint at {printer.host}")
                             return True
                         else:
-                            error = await resp.text()
-                            print(f"[PRINTER] OctoPrint upload failed ({resp.status}): {error}")
+                            print(f"[PRINTER] OctoPrint upload failed ({resp.status})")
                             return False
         except Exception as e:
             print(f"[PRINTER] OctoPrint upload error: {e}")
             return False
-    
-    async def _upload_moonraker(self, printer: Printer, gcode_path: str,
-                                 start_print: bool) -> bool:
+
+    async def _upload_moonraker(self, printer: Printer, gcode_path: str, 
+                                start_print: bool) -> bool:
         """Upload to Moonraker."""
         url = f"http://{printer.host}:{printer.port}/server/files/upload"
+        
         filename = os.path.basename(gcode_path)
         
         try:
@@ -821,51 +822,48 @@ class PrinterAgent:
                 with open(gcode_path, 'rb') as f:
                     data = aiohttp.FormData()
                     data.add_field('file', f, filename=filename)
-                    if start_print:
-                        data.add_field('print', 'true')
                     
                     async with session.post(url, data=data) as resp:
                         if resp.status in (200, 201):
-                            print(f"[PRINTER] Uploaded to Moonraker: {filename}")
+                            print(f"[PRINTER] Uploaded {filename} to Moonraker at {printer.host}")
+                            
+                            if start_print:
+                                # Trigger print
+                                print_url = f"http://{printer.host}:{printer.port}/printer/print/start"
+                                data_print = {"filename": filename}
+                                async with session.post(print_url, json=data_print) as resp_print:
+                                    if resp_print.status == 200:
+                                        print(f"[PRINTER] Started print on Moonraker")
+                                        return True
+                                    else:
+                                        print(f"[PRINTER] Moonraker start print failed ({resp_print.status})")
+                                        # Upload succeeded, so return True? 
+                                        # Method says "Upload ... AND optionally start".
+                                        # If start fails, operation partially failed.
+                                        return False
                             return True
                         else:
-                            error = await resp.text()
-                            print(f"[PRINTER] Moonraker upload failed ({resp.status}): {error}")
+                            print(f"[PRINTER] Moonraker upload failed ({resp.status})")
                             return False
         except Exception as e:
             print(f"[PRINTER] Moonraker upload error: {e}")
             return False
-    
+
     async def get_print_status(self, target: str) -> Optional[PrintStatus]:
         """
-        Get current print status from printer.
-        
-        Returns:
-            PrintStatus object, or None on error
+        Get current status of a printer.
         """
         printer = self._resolve_printer(target)
         if not printer:
-            print(f"[PRINTER] Error: Printer not found: {target}")
             return None
-        
+            
         if printer.printer_type == PrinterType.OCTOPRINT:
             return await self._status_octoprint(printer)
         elif printer.printer_type == PrinterType.MOONRAKER:
             return await self._status_moonraker(printer)
         else:
-            print(f"[PRINTER] Error: Unsupported printer type: {printer.printer_type}")
             return None
-    
-    def _format_time(self, seconds: Optional[float]) -> Optional[str]:
-        """Format seconds to human-readable time."""
-        if seconds is None or seconds < 0:
-            return None
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        if hours > 0:
-            return f"{hours}h {minutes}m"
-        return f"{minutes}m"
-    
+            
     async def _status_octoprint(self, printer: Printer) -> Optional[PrintStatus]:
         """Get status from OctoPrint."""
         url = f"http://{printer.host}:{printer.port}/api/job"
@@ -904,6 +902,9 @@ class PrinterAgent:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as resp:
                     if resp.status == 200:
+                        # Clear error state on success
+                        self._error_tracker.discard(printer.host)
+                        
                         data = await resp.json()
                         status = data.get("result", {}).get("status", {})
                         stats = status.get("print_stats", {})
@@ -928,16 +929,21 @@ class PrinterAgent:
                                     "target": bed.get("target", 0)
                                 }
                             }
-                )
+                        )
                     else:
-                        print(f"[PRINTER] Moonraker status failed ({resp.status})")
-                        return None
+                         if printer.host not in self._error_tracker:
+                            print(f"[PRINTER] Moonraker status failed ({resp.status})")
+                            self._error_tracker.add(printer.host)
+                         return None
         except Exception as e:
             msg = str(e)
-            if "404" in msg:
-                 print(f"[PRINTER] Moonraker status failed (404) at {url}")
-            else:
-                 print(f"[PRINTER] Moonraker status failed: {e}")
+            if printer.host not in self._error_tracker:
+                if "404" in msg:
+                     print(f"[PRINTER] Moonraker status failed (404) at {url}")
+                else:
+                     print(f"[PRINTER] Moonraker status failed: {e}")
+                self._error_tracker.add(printer.host)
+            
             return PrintStatus(
                 printer=printer.name,
                 state=f"Error: {e}",
@@ -947,63 +953,13 @@ class PrinterAgent:
                 filename=None,
                 temperatures={}
             )
-    
-    async def print_stl(self, stl_path: str, target: str, 
-                        profile: Optional[str] = None,
-                        progress_callback: Optional[Any] = None,
-                        root_path: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Complete workflow: Slice STL and send to printer.
-        
-        Args:
-            stl_path: Path to STL file (or 'current' for most recent)
-            target: Printer name or host
-            profile: Optional slicer profile name
-        
-        Returns:
-            Dict with success status and message
-        """
 
-        # Resolve 'current' to actual path if needed
-        if stl_path.lower() == "current":
-            # Look for output.stl in common locations
-            # We defer this to slice_stl's resolution now, but we need a NAME to start with
-            stl_path = "output.stl" 
-        
-        # Resolve printer first to get its name for profile matching
-        printer = self._resolve_printer(target)
-        printer_name = printer.name if printer else target
-        
-        # Resolve profile path (legacy support)
-        profile_path = None
-        if profile:
-            profile_path = os.path.join(self.profiles_dir, f"{profile}.ini")
-            if not os.path.exists(profile_path):
-                print(f"[PRINTER] Warning: Profile not found: {profile_path}")
-                profile_path = None
-        
-        # Step 1: Slice (with auto-profile detection using printer_name)
-        print(f"[PRINTER] Starting slice for printer: {printer_name}")
-        gcode_path = await self.slice_stl(
-            stl_path, 
-            profile_path=profile_path, 
-            progress_callback=progress_callback, 
-            root_path=root_path,
-            printer_name=printer_name
-        )
-        if not gcode_path:
-            return {"success": False, "message": "Slicing failed. Check slicer profiles."}
-        
-        # Step 2: Upload and start print
-        success = await self.upload_gcode(target, gcode_path, start_print=True)
-        if success:
-            return {
-                "success": True, 
-                "message": f"Print started on {target}",
-                "gcode_file": gcode_path
-            }
-        else:
-            return {"success": False, "message": f"Failed to upload to {target}"}
+    def _format_time(self, seconds: Optional[float]) -> Optional[str]:
+        if seconds is None:
+            return None
+        m, s = divmod(int(seconds), 60)
+        h, m = divmod(m, 60)
+        return f"{h:02d}:{m:02d}:{s:02d}"
 
 
 # Standalone test

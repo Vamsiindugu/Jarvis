@@ -66,9 +66,13 @@ export_stl(result_part, 'output.stl')
         print(f"[CadAgent DEBUG] [START] Generation started for: '{prompt}'")
         
         try:
-            # Clean up old output (in /tmp)
-            if os.path.exists("/tmp/output.stl"):
-                os.remove("/tmp/output.stl")
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            output_stl = os.path.join(temp_dir, "output.stl")
+            
+            # Clean up old output
+            if os.path.exists(output_stl):
+                os.remove(output_stl)
 
             max_retries = 3
             current_prompt = f"You are a build123d expert. Write a generic python script to create a 3D model of: {prompt}. Ensure you export to 'output.stl'. Unscaled."
@@ -127,12 +131,16 @@ export_stl(result_part, 'output.stl')
                     else:
                         print("[CadAgent DEBUG] [ERR] Could not extract python code.")
                         return None
-                # 3. Save to Local File (use /tmp to avoid triggering uvicorn reload)
-                script_name = "/tmp/temp_cad_gen.py"
-                output_stl = "/tmp/output.stl"
+                
+                # 3. Save to Local File (use temp dir to avoid triggering uvicorn reload)
+                script_name = os.path.join(temp_dir, "temp_cad_gen.py")
+                
+                # Fix for Windows paths in python strings: escape backslashes
+                safe_output_path = output_stl.replace("\\", "\\\\")
+                
                 with open(script_name, "w") as f:
                     # Inject output path into the script
-                    code_with_path = code.replace("output.stl", output_stl)
+                    code_with_path = code.replace("output.stl", safe_output_path)
                     f.write(code_with_path)
                     
                 print(f"[CadAgent DEBUG] [EXEC] Running local script: {script_name}")
@@ -142,16 +150,22 @@ export_stl(result_part, 'output.stl')
                 import sys
                 
                 # Use the current Python interpreter (unified environment with build123d + mediapipe)
-                proc = await asyncio.create_subprocess_exec(
-                    sys.executable, script_name,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                
-                stdout, stderr = await proc.communicate()
+                try:
+                    proc = await asyncio.to_thread(
+                        subprocess.run,
+                        [sys.executable, script_name],
+                        capture_output=True,
+                        text=True
+                    )
+                    stdout, stderr = proc.stdout, proc.stderr
+                except Exception as e:
+                     print(f"[CadAgent DEBUG] [ERR] Subprocess run failed: {e}")
+                     proc = type('obj', (object,), {'returncode': 1})
+                     stdout = ""
+                     stderr = str(e)
                 
                 if proc.returncode != 0:
-                    error_msg = stderr.decode()
+                    error_msg = stderr
                     # Extract a concise error message for display
                     error_lines = error_msg.strip().split('\n')
                     short_error = error_lines[-1][:100] if error_lines else "Unknown error"
@@ -222,8 +236,11 @@ Original request: {prompt}
         """
         print(f"[CadAgent DEBUG] [START] Iteration started for: '{prompt}'")
         
-        script_name = "/tmp/temp_cad_gen.py"
-        output_stl = "/tmp/output.stl"
+        import tempfile
+        temp_dir = tempfile.gettempdir()
+        script_name = os.path.join(temp_dir, "temp_cad_gen.py")
+        output_stl = os.path.join(temp_dir, "output.stl")
+        
         existing_code = ""
         
         if os.path.exists(script_name):

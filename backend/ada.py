@@ -10,7 +10,8 @@ import pyaudio
 import PIL.Image
 import mss
 import argparse
-import audioop
+import math
+import struct
 import time
 
 from google import genai
@@ -426,7 +427,15 @@ class AudioLoop:
                     await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
                 
                 # 2. VAD Logic for Video
-                rms = audioop.rms(data, 2) # 2 bytes width for paInt16
+                # rms = audioop.rms(data, 2)
+                # Replacement for audioop.rms(data, 2)
+                count = len(data) // 2
+                if count > 0:
+                    shorts = struct.unpack(f"<{count}h", data)
+                    sum_squares = sum(s**2 for s in shorts)
+                    rms = int(math.sqrt(sum_squares / count))
+                else:
+                    rms = 0
                 
                 if rms > VAD_THRESHOLD:
                     # Speech Detected

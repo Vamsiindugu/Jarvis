@@ -34,11 +34,6 @@
     ],
     "kasa_devices": [
         {
-            "ip": "10.0.0.116",
-            "alias": "Left Room Light",
-            "model": "KL135"
-        },
-        {
             "ip": "10.0.0.52",
             "alias": "Left Office Light ",
             "model": "KL135"
@@ -51,6 +46,11 @@
         {
             "ip": "10.0.0.49",
             "alias": "Right Room Light",
+            "model": "KL135"
+        },
+        {
+            "ip": "10.0.0.116",
+            "alias": "Left Room Light",
             "model": "KL135"
         }
     ],

@@ -598,11 +598,11 @@ function App() {
                 console.log("FilesetResolver initialized.");
 
                 // 3. Create Landmarker
-                console.log("Creating HandLandmarker (CPU)...");
+                console.log("Creating HandLandmarker (GPU)...");
                 handLandmarkerRef.current = await HandLandmarker.createFromOptions(vision, {
                     baseOptions: {
                         modelAssetPath: `/hand_landmarker.task`,
-                        delegate: "CPU" // Force CPU to avoid GPU context issues
+                        delegate: "GPU" // Enable GPU acceleration
                     },
                     runningMode: "VIDEO",
                     numHands: 1

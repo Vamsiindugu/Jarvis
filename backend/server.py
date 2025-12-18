@@ -9,6 +9,10 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+# Fix for asyncio subprocess support on Windows
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 # Ensure we can import ada
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
