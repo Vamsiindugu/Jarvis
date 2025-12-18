@@ -39,13 +39,13 @@
             "model": "KL135"
         },
         {
-            "ip": "10.0.0.83",
-            "alias": "Right Office Light",
+            "ip": "10.0.0.52",
+            "alias": "Left Office Light ",
             "model": "KL135"
         },
         {
-            "ip": "10.0.0.52",
-            "alias": "Left Office Light ",
+            "ip": "10.0.0.83",
+            "alias": "Right Office Light",
             "model": "KL135"
         },
         {

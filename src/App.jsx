@@ -139,6 +139,7 @@ function App() {
     // Video Refs
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
+    const transmissionCanvasRef = useRef(null); // Dedicated canvas for resizing payload
     const videoIntervalRef = useRef(null);
     const lastFrameTimeRef = useRef(0);
     const frameCountRef = useRef(0);
@@ -731,6 +732,14 @@ function App() {
                 videoRef.current.play();
             }
 
+            // Initialize the transmission canvas
+            if (!transmissionCanvasRef.current) {
+                transmissionCanvasRef.current = document.createElement('canvas');
+                transmissionCanvasRef.current.width = 640;
+                transmissionCanvasRef.current.height = 360;
+                console.log("Initialized transmission canvas (640x360)");
+            }
+
             setIsVideoOn(true);
             isVideoOnRef.current = true; // Update ref for loop
 
@@ -755,7 +764,7 @@ function App() {
             return;
         }
 
-        // 1. Draw Video to Canvas
+        // 1. Draw Video to Local Display Canvas (Native Resolution)
         const ctx = canvasRef.current.getContext('2d');
 
         // Ensure canvas matches video dimensions
@@ -766,18 +775,29 @@ function App() {
 
         ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
 
-        // 2. Send Frame to Backend (Throttled)
+        // 2. Send Frame to Backend (Throttled & Resized)
         // Only send if connected
         if (isConnected) {
             // Simple throttle: every 5th frame roughly
             if (frameCountRef.current % 5 === 0) {
-                canvasRef.current.toBlob((blob) => {
-                    if (blob) {
-                        socket.emit('video_frame', { image: blob });
-                    }
-                }, 'image/jpeg', 0.5);
+
+                // Use dedicated transmission canvas for resizing
+                const transCanvas = transmissionCanvasRef.current;
+                if (transCanvas) {
+                    const transCtx = transCanvas.getContext('2d');
+                    // Draw resized image
+                    transCtx.drawImage(videoRef.current, 0, 0, transCanvas.width, transCanvas.height);
+
+                    // Convert resized image to blob
+                    transCanvas.toBlob((blob) => {
+                        if (blob) {
+                            socket.emit('video_frame', { image: blob });
+                        }
+                    }, 'image/jpeg', 0.6); // Slightly higher compression for speed
+                }
             }
         }
+
 
         // 3. Hand Tracking
         let startTimeMs = performance.now();
