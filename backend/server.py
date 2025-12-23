@@ -1,3 +1,11 @@
+import sys
+import asyncio
+
+# Fix for asyncio subprocess support on Windows
+# MUST BE SET BEFORE OTHER IMPORTS
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 import socketio
 import uvicorn
 from fastapi import FastAPI
@@ -9,9 +17,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-# Fix for asyncio subprocess support on Windows
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 
 # Ensure we can import ada
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -104,6 +110,17 @@ kasa_agent = KasaAgent(known_devices=SETTINGS.get("kasa_devices"))
 
 @app.on_event("startup")
 async def startup_event():
+    import sys
+    print(f"[SERVER DEBUG] Startup Event Triggered")
+    print(f"[SERVER DEBUG] Python Version: {sys.version}")
+    try:
+        loop = asyncio.get_running_loop()
+        print(f"[SERVER DEBUG] Running Loop: {type(loop)}")
+        policy = asyncio.get_event_loop_policy()
+        print(f"[SERVER DEBUG] Current Policy: {type(policy)}")
+    except Exception as e:
+        print(f"[SERVER DEBUG] Error checking loop: {e}")
+
     print("[SERVER] Startup: Initializing Kasa Agent...")
     await kasa_agent.initialize()
 
@@ -586,13 +603,20 @@ async def iterate_cad(sid, data):
         await sio.emit('status', {'msg': 'Iterating design...'})
         await sio.emit('cad_status', {'status': 'generating'})
         
-        # Call the agent
-        result = await audio_loop.cad_agent.iterate_prototype(prompt)
+        # Call the agent with project path
+        cad_output_dir = str(audio_loop.project_manager.get_current_project_path() / "cad")
+        result = await audio_loop.cad_agent.iterate_prototype(prompt, output_dir=cad_output_dir)
         
         if result:
             info = f"{len(result.get('data', ''))} bytes (STL)"
             print(f"Sending updated CAD data: {info}")
             await sio.emit('cad_data', result)
+            # Save to Project
+            if 'file_path' in result:
+                saved_path = audio_loop.project_manager.save_cad_artifact(result['file_path'], prompt)
+                if saved_path:
+                    print(f"[SERVER] Saved iterated CAD to {saved_path}")
+
             await sio.emit('status', {'msg': 'Design updated'})
         else:
             await sio.emit('error', {'msg': 'Failed to update design'})
@@ -615,15 +639,22 @@ async def generate_cad(sid, data):
         await sio.emit('status', {'msg': 'Generating new design...'})
         await sio.emit('cad_status', {'status': 'generating'})
         
-        # Use generate_prototype based on prompt
-        # We might need to ensure cad_agent is ready or reset context?
-        # Assuming generate_prototype handles new context.
-        result = await audio_loop.cad_agent.generate_prototype(prompt)
+        # Use generate_prototype based on prompt with project path
+        cad_output_dir = str(audio_loop.project_manager.get_current_project_path() / "cad")
+        result = await audio_loop.cad_agent.generate_prototype(prompt, output_dir=cad_output_dir)
         
         if result:
             info = f"{len(result.get('data', ''))} bytes (STL)"
             print(f"Sending newly generated CAD data: {info}")
             await sio.emit('cad_data', result)
+
+
+            # Save to Project
+            if 'file_path' in result:
+                saved_path = audio_loop.project_manager.save_cad_artifact(result['file_path'], prompt)
+                if saved_path:
+                    print(f"[SERVER] Saved generated CAD to {saved_path}")
+
             await sio.emit('status', {'msg': 'Design generated'})
         else:
             await sio.emit('error', {'msg': 'Failed to generate design'})
@@ -952,6 +983,7 @@ if __name__ == "__main__":
         "server:app_socketio", 
         host="127.0.0.1", 
         port=8000, 
-        reload=True,
+        reload=False, # Reload enabled causes spawn of worker which might miss the event loop policy patch
+        loop="asyncio",
         reload_excludes=["temp_cad_gen.py", "output.stl", "*.stl"]
     )

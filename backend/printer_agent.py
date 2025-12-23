@@ -308,8 +308,15 @@ class PrinterAgent:
         elif system == "Windows":
             paths = [
                 r"C:\Program Files\OrcaSlicer\orca-slicer-console.exe",
+                r"C:\Program Files\OrcaSlicer\orca-slicer.exe",
                 r"C:\Program Files\Prusa3D\PrusaSlicer\prusa-slicer-console.exe",
-                r"C:\Program Files (x86)\Prusa3D\PrusaSlicer\prusa-slicer-console.exe"
+                r"C:\Program Files (x86)\Prusa3D\PrusaSlicer\prusa-slicer-console.exe",
+                # User/Portable Installs
+                os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "OrcaSlicer", "orca-slicer-console.exe"),
+                os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "OrcaSlicer", "orca-slicer.exe"),
+                os.path.join(os.environ.get("USERPROFILE", ""), "Downloads", "OrcaSlicer", "orca-slicer-console.exe"),
+                os.path.join(os.environ.get("USERPROFILE", ""), "Desktop", "OrcaSlicer", "orca-slicer-console.exe"),
+                os.path.join("C:\\", "OrcaSlicer", "orca-slicer-console.exe")
             ]
         else:  # Linux
             paths = [
@@ -805,6 +812,7 @@ class PrinterAgent:
                 with open(gcode_path, 'rb') as f:
                     data = aiohttp.FormData()
                     data.add_field('file', f, filename=filename)
+                    # Explicitly set root if needed, but default is usually fine?
                     
                     async with session.post(url, data=data) as resp:
                         if resp.status in (200, 201):
@@ -820,14 +828,17 @@ class PrinterAgent:
                                         return True
                                     else:
                                         print(f"[PRINTER] Moonraker start print failed ({resp_print.status})")
-                                        # Upload succeeded, so return True? 
-                                        # Method says "Upload ... AND optionally start".
-                                        # If start fails, operation partially failed.
                                         return False
                             return True
                         else:
-                            print(f"[PRINTER] Moonraker upload failed ({resp.status})")
-                            return False
+                            print(f"[PRINTER] Moonraker upload failed ({resp.status}). Trying OctoPrint compatibility layer...")
+
+            # Fallback to OctoPrint API (as Moonraker usually supports it and Creality K1 definitely does)
+            return await self._upload_octoprint(printer, gcode_path, start_print)
+            
+        except Exception as e:
+            print(f"[PRINTER] Moonraker upload error: {e}")
+            return False
         except Exception as e:
             print(f"[PRINTER] Moonraker upload error: {e}")
             return False
@@ -849,30 +860,54 @@ class PrinterAgent:
             
     async def _status_octoprint(self, printer: Printer) -> Optional[PrintStatus]:
         """Get status from OctoPrint."""
-        url = f"http://{printer.host}:{printer.port}/api/job"
+        job_url = f"http://{printer.host}:{printer.port}/api/job"
+        printer_url = f"http://{printer.host}:{printer.port}/api/printer"
         headers = {}
         if printer.api_key:
             headers["X-Api-Key"] = printer.api_key
         
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as resp:
+                # Fetch Job Status
+                job_data = {}
+                async with session.get(job_url, headers=headers) as resp:
                     if resp.status == 200:
-                        data = await resp.json()
-                        progress = data.get("progress", {})
-                        job = data.get("job", {})
-                        
-                        return PrintStatus(
-                            printer=printer.name,
-                            state=data.get("state", "unknown").lower(),
-                            progress_percent=progress.get("completion") or 0,
-                            time_remaining=self._format_time(progress.get("printTimeLeft")),
-                            time_elapsed=self._format_time(progress.get("printTime")),
-                            filename=job.get("file", {}).get("name")
-                        )
-                    else:
-                        print(f"[PRINTER] OctoPrint status failed ({resp.status})")
-                        return None
+                        job_data = await resp.json()
+                
+                # Fetch Printer Status (Temps)
+                temps = {}
+                async with session.get(printer_url, headers=headers) as resp:
+                    if resp.status == 200:
+                        printer_data = await resp.json()
+                        # OctoPrint structure: temperature -> tool0, bed
+                        temp_data = printer_data.get("temperature", {})
+                        if "tool0" in temp_data:
+                            temps["hotend"] = {
+                                "current": temp_data["tool0"].get("actual", 0),
+                                "target": temp_data["tool0"].get("target", 0)
+                            }
+                        if "bed" in temp_data:
+                            temps["bed"] = {
+                                "current": temp_data["bed"].get("actual", 0),
+                                "target": temp_data["bed"].get("target", 0)
+                            }
+
+                if job_data:
+                    progress = job_data.get("progress", {})
+                    job = job_data.get("job", {})
+                    
+                    return PrintStatus(
+                        printer=printer.name,
+                        state=job_data.get("state", "unknown").lower(),
+                        progress_percent=progress.get("completion") or 0,
+                        time_remaining=self._format_time(progress.get("printTimeLeft")),
+                        time_elapsed=self._format_time(progress.get("printTime")),
+                        filename=job.get("file", {}).get("name"),
+                        temperatures=temps
+                    )
+                else:
+                    return None
+
         except Exception as e:
             print(f"[PRINTER] OctoPrint status error: {e}")
             return None
@@ -943,6 +978,40 @@ class PrinterAgent:
         m, s = divmod(int(seconds), 60)
         h, m = divmod(m, 60)
         return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+    async def print_stl(self, stl_path: str, printer_name: str, 
+                        profile_path: Optional[str] = None, 
+                        root_path: Optional[str] = None) -> Dict[str, str]:
+        """
+        Orchestrate the full printing workflow: Slice -> Upload -> Print.
+        """
+        print(f"[PRINTER] Starting print job for {stl_path} on {printer_name}")
+        
+        # 1. Resolve Printer
+        printer = self._resolve_printer(printer_name)
+        if not printer:
+            return {"status": "error", "message": f"Printer '{printer_name}' not found."}
+
+        # 2. Slice STL
+        # Use printer name to auto-detect profiles if not provided
+        gcode_path = await self.slice_stl(
+            stl_path, 
+            profile_path=profile_path,
+            root_path=root_path,
+            printer_name=printer.name 
+        )
+        
+        if not gcode_path:
+            return {"status": "error", "message": "Slicing failed check logs."}
+
+        # 3. Upload & Start Print
+        success = await self.upload_gcode(printer_name, gcode_path, start_print=True)
+        
+        if success:
+            return {"status": "success", "message": f"Printing {os.path.basename(stl_path)} on {printer.name}"}
+        else:
+            return {"status": "error", "message": "Failed to upload/start print job."}
 
 
 # Standalone test

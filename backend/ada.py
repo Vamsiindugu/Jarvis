@@ -491,8 +491,11 @@ class AudioLoop:
                 except Exception as e:
                     print(f"[ADA DEBUG] [ERR] Failed to notify auto-project: {e}")
 
-        # Call the secondary agent
-        cad_data = await self.cad_agent.generate_prototype(prompt)
+        # Get project cad folder path
+        cad_output_dir = str(self.project_manager.get_current_project_path() / "cad")
+        
+        # Call the secondary agent with project path
+        cad_data = await self.cad_agent.generate_prototype(prompt, output_dir=cad_output_dir)
         
         if cad_data:
             print(f"[ADA DEBUG] [OK] CadAgent returned data successfully.")
@@ -504,7 +507,11 @@ class AudioLoop:
                 print(f"[ADA DEBUG] [SENT] Dispatch complete.")
             
             # Save to Project
-            self.project_manager.save_cad_artifact("output.stl", prompt)
+            if 'file_path' in cad_data:
+                self.project_manager.save_cad_artifact(cad_data['file_path'], prompt)
+            else:
+                 # Fallback (legacy support)
+                 self.project_manager.save_cad_artifact("output.stl", prompt)
 
             # Notify the model that the task is done - this triggers speech about completion
             completion_msg = "System Notification: CAD generation is complete! The 3D model is now displayed for the user. Let them know it's ready."
@@ -1075,8 +1082,11 @@ class AudioLoop:
                                     if self.on_cad_status:
                                         self.on_cad_status("generating")
                                     
+                                    # Get project cad folder path
+                                    cad_output_dir = str(self.project_manager.get_current_project_path() / "cad")
+                                    
                                     # Call CadAgent to iterate on the design
-                                    cad_data = await self.cad_agent.iterate_prototype(prompt)
+                                    cad_data = await self.cad_agent.iterate_prototype(prompt, output_dir=cad_output_dir)
                                     
                                     if cad_data:
                                         print(f"[ADA DEBUG] [OK] CadAgent iteration returned data successfully.")

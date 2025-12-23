@@ -1,11 +1,12 @@
 import os
 import json
 import asyncio
+from datetime import datetime
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 
 load_dotenv()
 
@@ -59,20 +60,28 @@ export_stl(result_part, 'output.stl')
 ```
 """
 
-    async def generate_prototype(self, prompt: str):
+    async def generate_prototype(self, prompt: str, output_dir: Optional[str] = None):
         """
         Generates 3D geometry by asking Gemini for a script, then running it LOCALLY.
+        Args:
+            prompt: User's description of the model to generate.
+            output_dir: Directory to save the script and STL. If None, uses temp dir.
         """
         print(f"[CadAgent DEBUG] [START] Generation started for: '{prompt}'")
         
         try:
-            import tempfile
-            temp_dir = tempfile.gettempdir()
-            output_stl = os.path.join(temp_dir, "output.stl")
+            # Use provided output_dir or fall back to temp
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+                work_dir = output_dir
+            else:
+                import tempfile
+                work_dir = tempfile.gettempdir()
             
-            # Clean up old output
-            if os.path.exists(output_stl):
-                os.remove(output_stl)
+            # Generate timestamped filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_stl = os.path.join(work_dir, f"output_{timestamp}.stl")
+            script_path = os.path.join(work_dir, "current_design.py")
 
             max_retries = 3
             current_prompt = f"You are a build123d expert. Write a generic python script to create a 3D model of: {prompt}. Ensure you export to 'output.stl'. Unscaled."
@@ -132,18 +141,16 @@ export_stl(result_part, 'output.stl')
                         print("[CadAgent DEBUG] [ERR] Could not extract python code.")
                         return None
                 
-                # 3. Save to Local File (use temp dir to avoid triggering uvicorn reload)
-                script_name = os.path.join(temp_dir, "temp_cad_gen.py")
-                
+                # 3. Save to Local File in cad_outputs folder
                 # Fix for Windows paths in python strings: escape backslashes
                 safe_output_path = output_stl.replace("\\", "\\\\")
                 
-                with open(script_name, "w") as f:
+                with open(script_path, "w") as f:
                     # Inject output path into the script
                     code_with_path = code.replace("output.stl", safe_output_path)
                     f.write(code_with_path)
                     
-                print(f"[CadAgent DEBUG] [EXEC] Running local script: {script_name}")
+                print(f"[CadAgent DEBUG] [EXEC] Running local script: {script_path}")
                 
                 # 4. Execute Locally
                 import subprocess
@@ -153,7 +160,7 @@ export_stl(result_part, 'output.stl')
                 try:
                     proc = await asyncio.to_thread(
                         subprocess.run,
-                        [sys.executable, script_name],
+                        [sys.executable, script_path],
                         capture_output=True,
                         text=True
                     )
@@ -204,7 +211,8 @@ Original request: {prompt}
                     
                     return {
                         "format": "stl",
-                        "data": b64_stl
+                        "data": b64_stl,
+                        "file_path": output_stl
                     }
                 else:
                      print(f"[CadAgent DEBUG] [ERR] '{output_stl}' was not generated.")
@@ -230,35 +238,46 @@ Original request: {prompt}
             traceback.print_exc()
             return None
 
-    async def iterate_prototype(self, prompt: str):
+    async def iterate_prototype(self, prompt: str, output_dir: Optional[str] = None):
         """
-        Iterates on the existing design by reading 'temp_cad_gen.py' and applying changes.
+        Iterates on the existing design by reading 'current_design.py' and applying changes.
+        Args:
+            prompt: User's description of the changes to make.
+            output_dir: Directory containing existing script and where to save new STL.
         """
         print(f"[CadAgent DEBUG] [START] Iteration started for: '{prompt}'")
         
-        import tempfile
-        temp_dir = tempfile.gettempdir()
-        script_name = os.path.join(temp_dir, "temp_cad_gen.py")
-        output_stl = os.path.join(temp_dir, "output.stl")
+        # Use provided output_dir or fall back to temp
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            work_dir = output_dir
+        else:
+            import tempfile
+            work_dir = tempfile.gettempdir()
+        
+        # Generate timestamped filename for the output
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        script_path = os.path.join(work_dir, "current_design.py")
+        output_stl = os.path.join(work_dir, f"output_{timestamp}.stl")
         
         existing_code = ""
         
-        if os.path.exists(script_name):
-            with open(script_name, "r") as f:
+        if os.path.exists(script_path):
+            with open(script_path, "r") as f:
                 existing_code = f.read()
             
-            # Sanitize existing code: replace any absolute temp paths with 'output.stl'
+            # Sanitize existing code: replace any absolute paths with 'output.stl'
             # This prevents the LLM from seeing/reproducing Windows paths that cause Unicode escape errors
             import re
-            # Match both escaped (\\) and unescaped (\) Windows temp paths to output.stl
+            # Match both escaped (\\) and unescaped (\) Windows paths to output.stl
             existing_code = re.sub(
-                r"['\"]C:\\\\?Users\\\\?[^'\"]+\\\\?output\.stl['\"]",
+                r"['\"]C:\\\\?Users\\\\?[^'\"]+\\\\?output[^'\"]*\.stl['\"]",
                 "'output.stl'",
                 existing_code
             )
             # Also handle forward-slash variants
             existing_code = re.sub(
-                r"['\"]C:/Users/[^'\"]+/output\.stl['\"]",
+                r"['\"]C:/Users/[^'\"]+/output[^'\"]*\.stl['\"]",
                 "'output.stl'",
                 existing_code
             )
@@ -267,9 +286,6 @@ Original request: {prompt}
              return await self.generate_prototype(prompt)
 
         try:
-            # Clean up old output
-            if os.path.exists(output_stl):
-                os.remove(output_stl)
 
             max_retries = 3
             current_prompt = f"""
@@ -341,18 +357,18 @@ Ensure you still export to 'output.stl'.
                         print("[CadAgent DEBUG] [ERR] Could not extract python code.")
                         return None
                 
-                # 3. Save to Local File
-                # Overwrite the temp file so the next iteration builds on this one
+                # 3. Save to Local File in cad_outputs folder
+                # Overwrite the script so the next iteration builds on this one
                 
                 # Fix for Windows paths in python strings: escape backslashes
                 safe_output_path = output_stl.replace("\\", "\\\\")
                 
-                with open(script_name, "w") as f:
+                with open(script_path, "w") as f:
                     # Inject output path into the script
                     code_with_path = code.replace("output.stl", safe_output_path)
                     f.write(code_with_path)
                     
-                print(f"[CadAgent DEBUG] [EXEC] Running local script: {script_name}")
+                print(f"[CadAgent DEBUG] [EXEC] Running local script: {script_path}")
                 
                 # 4. Execute Locally
                 import subprocess
@@ -363,7 +379,7 @@ Ensure you still export to 'output.stl'.
                 try:
                     proc = await asyncio.to_thread(
                         subprocess.run,
-                        [sys.executable, script_name],
+                        [sys.executable, script_path],
                         capture_output=True,
                         text=True
                     )
@@ -401,7 +417,8 @@ Ensure you still export to 'output.stl'.
                     
                     return {
                         "format": "stl",
-                        "data": b64_stl
+                        "data": b64_stl,
+                        "file_path": output_stl
                     }
                 else:
                      print(f"[CadAgent DEBUG] [ERR] '{output_stl}' was not generated.")
