@@ -95,7 +95,7 @@ export_stl(result_part, 'output.stl')
     # 1. Read temp_cad_gen.py
     # 2. Call agent.client.aio.models.generate_content (which returns our new_code)
     # 3. Extract code and overwrite temp_cad_gen.py
-    # 4. Execute temp_cad_gen.py using subprocess (REAL execution in ada_cad_env)
+    # 4. Execute temp_cad_gen.py using subprocess (REAL execution in jarvis_cad_env)
     # 5. Return STL
     
     result = await agent.iterate_prototype("make it a cylinder")

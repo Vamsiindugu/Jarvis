@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Master Test Runner for ada_v2.
+Master Test Runner for jarvis_v2.
 
 Usage:
     python tests/test_runner.py              # Run all tests
@@ -19,7 +19,7 @@ MODULES = {
     "cad": "test_cad_agent.py",
     "web": "test_web_agent.py",
     "auth": "test_authenticator.py",
-    "tools": "test_ada_tools.py",
+    "tools": "test_jarvis_tools.py",
 }
 
 TESTS_DIR = Path(__file__).parent
@@ -61,7 +61,7 @@ def run_tests(modules: list = None, quick: bool = False, verbose: bool = True):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ada_v2 Test Runner")
+    parser = argparse.ArgumentParser(description="jarvis_v2 Test Runner")
     parser.add_argument(
         "--module", "-m",
         type=str,

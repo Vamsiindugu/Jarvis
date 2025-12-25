@@ -90,10 +90,10 @@ const Visualizer = ({ audioData, isListening, intensity = 0, width = 600, height
                 <motion.div
                     animate={{ scale: isListening ? [1, 1.1, 1] : 1 }}
                     transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                    className="text-cyan-100 font-bold tracking-widest drop-shadow-[0_0_15px_rgba(34,211,238,0.8)]"
-                    style={{ fontSize: Math.min(width, height) * 0.1 }}
+                    className="text-cyan-100 font-bold tracking-[0.2em] drop-shadow-[0_0_15px_rgba(34,211,238,0.8)]"
+                    style={{ fontSize: Math.min(width, height) * 0.08 }}
                 >
-                    A.D.A
+                    JARVIS
                 </motion.div>
             </div>
 

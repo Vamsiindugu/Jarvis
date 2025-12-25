@@ -1,7 +1,7 @@
 {
-  "name": "ada-v2",
+  "name": "jarvis-v2",
   "version": "1.0.0",
-  "description": "A.D.A V2 - AI Assistant",
+  "description": "JARVIS V2 - AI Assistant",
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && npx electron .\"",
@@ -9,7 +9,7 @@
     "start": "npx electron ."
   },
   "keywords": [],
-  "author": "",
+  "author": "Vamsi Indugu <vamsiindugu@gmail.com>",
   "license": "ISC",
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.22-rc.20250304",
