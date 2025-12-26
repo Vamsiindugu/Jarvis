@@ -1,5 +1,6 @@
-# JARVIS 
-### *Your Charming, AI Companion*
+# JARVIS
+
+## Your Charming, AI Companion
 
 ![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11-blue?logo=python)
 ![React](https://img.shields.io/badge/React-18.2-61DAFB?logo=react)
@@ -9,73 +10,94 @@
 
 > *"Just A Rather Very Intelligent System"* — but you can call me **JARVIS**.
 
-Welcome, Creator! I am **JARVIS**, a sophisticated digital entity designed not just to assist, but to *collaborate*. I don't just process commands; I listen, I see, and I build alongside you. 
+Welcome, Creator! I am **JARVIS**, a sophisticated digital entity designed not
+just to assist, but to *collaborate*. I don't just process commands; I listen,
+I see, and I build alongside you.
 
-With the power of **Google's Gemini 2.5**, I possess a voice that feels human, eyes that recognize you, and hands (metaphorically speaking) that can sculpt 3D worlds and navigate the web.
-
----
-
-## 📑 Table of Contents
-
-- [What I Can Do For You](#-what-i-can-do-for-you)
-- [How to Interact](#-how-to-interact)
-- [Architecture](#-architecture-overview)
-- [Quick Start](#-tldr-quick-start-experienced-developers)
-- [Installation](#-installation-requirements)
-- [Configuration](#-configuration-settingsjson)
-- [Printer Setup](#5-️-3d-printer-setup)
-- [API Key](#6--gemini-api-key-setup)
-- [Running JARVIS](#-running-jarvis)
-- [First Flight Checklist](#-first-flight-checklist-things-to-test)
-- [Commands & Tools](#-commands--tools-reference)
-- [Troubleshooting](#-troubleshooting-faq)
+With the power of **Google's Gemini 2.5**, I possess a voice that feels human,
+eyes that recognize you, and hands (metaphorically speaking) that can sculpt 3D
+worlds and navigate the web.
 
 ---
 
-## ✨ What I Can Do For You
+## 📑 Table of Contents {#table-of-contents}
+
+- [What I Can Do For You](#what-i-can-do-for-you)
+- [How to Interact](#how-to-interact)
+- [Architecture Overview](#architecture-overview)
+- [TL;DR Quick Start](#tldr-quick-start)
+- [Installation Requirements](#installation-requirements)
+- [Configuration](#configuration)
+- [3D Printer Setup](#3d-printer-setup)
+- [Gemini API Key Setup](#gemini-api-key-setup)
+- [Running JARVIS](#running-jarvis)
+- [First Flight Checklist](#first-flight-checklist)
+- [Commands and Tools Reference](#commands-and-tools-reference)
+- [Troubleshooting FAQ](#troubleshooting-faq)
+
+---
+
+## ✨ What I Can Do For You {#what-i-can-do-for-you}
 
 I am more than lines of code. Here is my skillset:
 
-### 🗣️ The Gift of Gab (Native Audio)
-I don't just transcribe text; I *listen*. We can have real-time, low-latency conversations. Interrupt me, ask me to pause, or change the subject—I keep up.
+### 🗣️ The Gift of Gab (Native Audio) {#the-gift-of-gab}
 
-### 👁️ I See You (Computer Vision)
-- **Face Authentication**: I know who you are. My biometric security ensures only *you* can access my core functions.
-- **Minority Report Gestures**: waving your hands isn't just for exercise. 
+I don't just transcribe text; I *listen*. We can have real-time, low-latency
+conversations. Interrupt me, ask me to pause, or change the subject—I keep up.
+
+### 👁️ I See You (Computer Vision) {#i-see-you}
+
+- **Face Authentication**: I know who you are. My biometric security ensures
+  only *you* can access my core functions.
+- **Minority Report Gestures**: waving your hands isn't just for exercise.
   - 🤏 **Pinch** to click.
   - ✊ **Grab** to move windows.
   - ✋ **Open Palm** to release.
 
-### 🧊 I Build Things (Parametric CAD)
-Describe a shape, a part, or a mechanism, and I will generate the 3D CAD model for it instantly using `build123d`.
+### 🧊 I Build Things (Parametric CAD) {#i-build-things}
+
+Describe a shape, a part, or a mechanism, and I will generate the 3D CAD model
+for it instantly using `build123d`.
+
 > *"Jarvis, make me a hex bolt with a 5mm thread."* — **Done.**
 
-### 🖨️ I Bring Ideas to Life (3D Printing)
-I speak fluent G-code. I can slice your models using **OrcaSlicer** and send them directly to your printer (Moonraker/OctoPrint).
+### 🖨️ I Bring Ideas to Life (3D Printing) {#i-bring-ideas-to-life}
 
-### 🌐 I Surf the Web (Web Agent)
-Need to find a price, research a topic, or buy a cable? I can take control of a browser and get it done while you sip your coffee.
+I speak fluent G-code. I can slice your models using **OrcaSlicer** and send
+them directly to your printer (Moonraker/OctoPrint).
 
-### 🏠 I Control Your Domain (Smart Home)
+### 🌐 I Surf the Web (Web Agent) {#i-surf-the-web}
+
+Need to find a price, research a topic, or buy a cable? I can take control of a
+browser and get it done while you sip your coffee.
+
+### 🏠 I Control Your Domain (Smart Home) {#i-control-your-domain}
+
 "Lights on." "Lights off." I manage your TP-Link Kasa devices with a thought.
 
 ---
-## 🎮 How to Interact
+
+## 🎮 How to Interact {#how-to-interact}
 
 ### Voice
+
 Just speak! "**Jarvis, let's start a new project.**"
 
 ### Gestures
-Raise your hand. I'll show you a skeleton overlay. Pinch your index finger and thumb to "click" air.
+
+Raise your hand. I'll show you a skeleton overlay. Pinch your index finger and
+thumb to "click" air.
 
 ### The Magic Words (Commands)
+
 - **"Create a cube of size 10"** → Watch the CAD window.
 - **"Slice this model"** → I'll prepare it for printing.
 - **"Go to YouTube and play lo-fi beats"** → My browser agent takes over.
 
 ---
 
-## 🏗️ Architecture Overview
+## 🏗️ Architecture Overview {#architecture-overview}
 
 ```mermaid
 graph TB
@@ -85,7 +107,7 @@ graph TB
         GESTURE[MediaPipe Gestures]
         SOCKET_C[Socket.IO Client]
     end
-    
+
     subgraph Backend ["Backend (Python 3.11 + FastAPI)"]
         SERVER[server.py<br/>Socket.IO Server]
         JARVIS[jarvis.py<br/>Gemini Live API]
@@ -96,7 +118,7 @@ graph TB
         AUTH[authenticator.py<br/>MediaPipe Face Auth]
         PM[project_manager.py<br/>Project Context]
     end
-    
+
     UI --> SOCKET_C
     SOCKET_C <--> SERVER
     SERVER --> JARVIS
@@ -112,10 +134,12 @@ graph TB
 
 ---
 
-## ⚡ TL;DR Quick Start (Experienced Developers)
+## ⚡ TL;DR Quick Start {#tldr-quick-start}
 
+<!-- markdownlint-disable MD033 -->
 <details>
 <summary>Click to expand quick setup commands</summary>
+<!-- markdownlint-enable MD033 -->
 
 ```bash
 # 1. Clone and enter
@@ -137,58 +161,79 @@ echo "GEMINI_API_KEY=your_key_here" > .env
 conda activate jarvis_v2 && npm run dev
 ```
 
+<!-- markdownlint-disable MD033 -->
 </details>
+<!-- markdownlint-enable MD033 -->
 
 ---
 
-## 🛠️ Installation Requirements
+## 🛠️ Installation Requirements {#installation-requirements}
 
-### 🆕 Absolute Beginner Setup (Start Here)
+### 🆕 Absolute Beginner Setup (Start Here) {#absolute-beginner-setup}
+
 If you have never coded before, follow these steps first!
 
-**Step 1: Install Visual Studio Code (The Editor)**
-- Download and install [VS Code](https://code.visualstudio.com/). This is where you will write code and run commands.
+### Step 1: Install Visual Studio Code (The Editor)
 
-**Step 2: Install Anaconda (The Manager)**
-- Download [Miniconda](https://docs.conda.io/en/latest/miniconda.html) (a lightweight version of Anaconda).
-- This tool allows us to create isolated "playgrounds" (environments) for our code so different projects don't break each other.
-- **Windows Users**: During install, check "Add Anaconda to my PATH environment variable" (even if it says not recommended, it makes things easier for beginners).
+- Download and install [VS Code](https://code.visualstudio.com/). This is where
+  you will write code and run commands.
 
-**Step 3: Install Git (The Downloader)**
+### Step 2: Install Anaconda (The Manager)
+
+- Download [Miniconda](https://docs.conda.io/en/latest/miniconda.html) (a
+  lightweight version of Anaconda).
+- This tool allows us to create isolated "playgrounds" (environments) for our
+  code so different projects don't break each other.
+- **Windows Users**: During install, check "Add Anaconda to my PATH environment
+  variable" (even if it says not recommended, it makes things easier for
+  beginners).
+
+### Step 3: Install Git (The Downloader)
+
 - **Windows**: Download [Git for Windows](https://git-scm.com/download/win).
-- **Mac**: Open the "Terminal" app (Cmd+Space, type Terminal) and type `git`. If not installed, it will ask to install developer tools — say yes.
+- **Mac**: Open the "Terminal" app (Cmd+Space, type Terminal) and type `git`.
+  If not installed, it will ask to install developer tools — say yes.
 
-**Step 4: Get the Code**
+#### Step 4: Get the Code
+
 1. Open your terminal (or Command Prompt on Windows).
 2. Type this command and hit Enter:
+
    ```bash
    git clone https://github.com/vamsiindugu/jarvis_v2.git
    ```
+
 3. This creates a folder named `jarvis_v2`.
 
-**Step 5: Open in VS Code**
+### Step 5: Open in VS Code
+
 1. Open VS Code.
 2. Go to **File > Open Folder**.
 3. Select the `jarvis_v2` folder you just downloaded.
-4. Open the internal terminal: Press `Ctrl + ~` (tilde) or go to **Terminal > New Terminal**.
+4. Open the internal terminal: Press `Ctrl + ~` (tilde) or go to **Terminal >
+   New Terminal**.
 
 ---
 
-### ⚠️ Technical Prerequisites
+## ⚠️ Technical Prerequisites {#technical-prerequisites}
+
 Once you have the basics above, continue here.
 
 ### 1. System Dependencies
 
 **MacOS:**
+
 ```bash
 # Audio Input/Output support (PyAudio)
 brew install portaudio
 ```
 
 **Windows:**
+
 - No additional system dependencies required!
 
 ### 2. Python Environment
+
 Create a single Python 3.11 environment:
 
 ```bash
@@ -203,7 +248,9 @@ playwright install chromium
 ```
 
 ### 3. Frontend Setup
-Requires **Node.js 18+** and **npm**. Download from [nodejs.org](https://nodejs.org/) if not installed.
+
+Requires **Node.js 18+** and **npm**. Download from [nodejs.org](https://nodejs.org/)
+if not installed.
 
 ```bash
 # Verify Node is installed
@@ -213,93 +260,115 @@ node --version  # Should show v18.x or higher
 npm install
 ```
 
-### 4. 🔐 Face Authentication Setup
+### 4. 🔐 Face Authentication Setup {#face-authentication-setup}
+
 To use the secure voice features, JARVIS needs to know what you look like.
 
 1. Take a clear photo of your face (or use an existing one).
 2. Rename the file to `reference.jpg`.
 3. Drag and drop this file into the `jarvis_v2/backend` folder.
-4. (Optional) You can toggle this feature on/off in `settings.json` by changing `"face_auth_enabled": true/false`.
+4. (Optional) You can toggle this feature on/off in `settings.json` by changing
+   `"face_auth_enabled": true/false`.
 
 ---
 
-## ⚙️ Configuration (`settings.json`)
+## ⚙️ Configuration {#configuration}
 
-The system creates a `settings.json` file on first run. You can modify this to change behavior:
+The system creates a `settings.json` file on first run. You can modify this to
+change behavior:
 
 | Key | Type | Description |
 | :--- | :--- | :--- |
-| `face_auth_enabled` | `bool` | If `true`, blocks all AI interaction until your face is recognized via the camera. |
-| `tool_permissions` | `obj` | Controls manual approval for specific tools. |
-| `tool_permissions.generate_cad` | `bool` | If `true`, requires you to click "Confirm" on the UI before generating CAD. |
-| `tool_permissions.run_web_agent` | `bool` | If `true`, requires confirmation before opening the browser agent. |
-| `tool_permissions.write_file` | `bool` | **Critical**: Requires confirmation before the AI writes code/files to disk. |
+| `face_auth_enabled` | `bool` | If `true`, AI interaction is blocked. |
+| `tool_permissions` | `obj` | Controls manual approval for tools. |
+| `tool_permissions.generate_cad` | `bool` | Requires "Confirm" on UI. |
+| `tool_permissions.run_web_agent` | `bool` | Requires browser confirmation. |
+| `tool_permissions.write_file` | `bool` | Requires write confirmation. |
 
 ---
 
-### 5. 🖨️ 3D Printer Setup
+## 🖨️ 3D Printer Setup {#3d-printer-setup}
+
 JARVIS V2 can slice STL files and send them directly to your 3D printer.
 
 **Supported Hardware:**
+
 - **Klipper/Moonraker** (Creality K1, Voron, etc.)
 - **OctoPrint** instances
 - **PrusaLink** (Experimental)
 
-**Step 1: Install Slicer**
+### Step 1: Install Slicer
+
 JARVIS uses **OrcaSlicer** (recommended) or PrusaSlicer to generate G-code.
+
 1. Download and install [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer).
 2. Run it once to ensure profiles are created.
 3. JARVIS automatically detects the installation path.
 
-**Step 2: Connect Printer**
+### Step 2: Connect Printer
+
 1. Ensure your printer and computer are on the **same Wi-Fi network**.
 2. Open the **Printer Window** in JARVIS (Cube icon).
 3. JARVIS automatically scans for printers using mDNS.
-4. **Manual Connection**: If your printer isn't found, use the "Add Printer" button and enter the IP address (e.g., `192.168.1.50`).
+4. **Manual Connection**: If your printer isn't found, use the "Add Printer"
+   button and enter the IP address (e.g., `192.168.1.50`).
 
 ---
 
-### 6. 🔑 Gemini API Key Setup
-JARVIS uses Google's Gemini API for voice and intelligence. You need a free API key.
+## 🔑 Gemini API Key Setup {#gemini-api-key-setup}
+
+JARVIS uses Google's Gemini API for voice and intelligence. You need a free API
+key.
 
 1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey).
 2. Sign in with your Google account.
 3. Click **"Create API Key"** and copy the generated key.
-4. Create a file named `.env` in the `jarvis_v2` folder (same level as `README.md`).
+4. Create a file named `.env` in the `jarvis_v2` folder (same level as
+   `README.md`).
 5. Add this line to the file:
-   ```
+
+   ```env
    GEMINI_API_KEY=your_api_key_here
    ```
+
 6. Replace `your_api_key_here` with the key you copied.
 
 > **Note**: Keep this key private! Never commit your `.env` file to Git.
 
 ---
 
-## 🚀 Running JARVIS 
+## 🚀 Running JARVIS {#running-jarvis}
 
-You have two options to run the app. Ensure your `jarvis_v2` environment is active!
+You have two options to run the app. Ensure your `jarvis_v2` environment is
+active!
 
 ### Option 1: The "Easy" Way (Single Terminal)
+
 The app is smart enough to start the backend for you.
+
 1. Open your terminal in the `jarvis_v2` folder.
 2. Activate your environment: `conda activate jarvis_v2`
 3. Run:
+
    ```bash
    npm run dev
    ```
+
 4. The backend will start automatically in the background.
 
 ### Option 2: The "Developer" Way (Two Terminals)
+
 Use this if you want to see the Python logs (recommended for debugging).
 
 **Terminal 1 (Backend):**
+
 ```bash
 conda activate jarvis_v2
 python backend/server.py
 ```
 
 **Terminal 2 (Frontend):**
+
 ```bash
 # Environment doesn't matter here, but keep it simple
 npm run dev
@@ -307,88 +376,112 @@ npm run dev
 
 ---
 
-## ✅ First Flight Checklist (Things to Test)
+## ✅ First Flight Checklist {#first-flight-checklist}
 
 - [ ] **Voice Check**: Say "Hello Jarvis". He should respond.
-- [ ] **Vision Check**: Look at the camera. If Face Auth is on, the lock screen should unlock.
-- [ ] **CAD Check**: Open the CAD window and say "Create a cube". Watch the logs.
+- [ ] **Vision Check**: Look at the camera. If Face Auth is on, the lock screen
+  should unlock.
+- [ ] **CAD Check**: Open the CAD window and say "Create a cube". Watch the
+  logs.
 - [ ] **Web Check**: Open the Browser window and say "Go to Google".
 - [ ] **Smart Home**: If you have Kasa devices, say "Turn on the lights".
 
 ---
 
-## ▶️ Commands & Tools Reference
+## ▶️ Commands and Tools Reference {#commands-and-tools-reference}
 
-### 🗣️ Voice Commands
+### Voice Commands
+
 - "Switch project to [Name]"
 - "Create a new project called [Name]"
 - "Turn on the [Room] light"
 - "Make the light [Color]"
 - "Pause audio" / "Stop audio"
 
-### 🧊 3D CAD
+### 🧊 3D CAD {#3d-cad}
+
 - **Prompt**: "Create a 3D model of a hex bolt."
 - **Iterate**: "Make the head thinner." (Requires previous context)
 - **Files**: Saves to `projects/[ProjectName]/output.stl`.
 
-### 🌐 Web Agent
-- **Prompt**: "Go to Amazon and find a USB-C cable under $10."
-- **Note**: The agent will auto-scroll, click, and type. Do not interfere with the browser window while it runs.
+### 🌐 Web Agent {#web-agent}
 
-### 🖨️ Printing & Slicing
+- **Prompt**: "Go to Amazon and find a USB-C cable under $10."
+- **Note**: The agent will auto-scroll, click, and type. Do not interfere with
+  the browser window while it runs.
+
+### Printing and Slicing
+
 - **Auto-Discovery**: JARVIS automatically finds printers on your network.
 - **Slicing**: Click "Slice & Print" on any generated 3D model.
-- **Profiles**: JARVIS intelligently selects the correct OrcaSlicer profile based on your printer's name (e.g., "Creality K1").
+- **Profiles**: JARVIS intelligently selects correct OrcaSlicer profile.
 
 ---
 
-## ❓ Troubleshooting FAQ
+## ❓ Troubleshooting FAQ {#troubleshooting-faq}
 
+<!-- markdownlint-disable MD033 -->
 <details>
 <summary>Click to view common issues and solutions</summary>
+<!-- markdownlint-enable MD033 -->
 
 ### Camera not working / Permission denied (Mac)
+
 **Symptoms**: Error about camera access, or video feed shows black.
 
 **Solution**:
+
 1. Go to **System Preferences > Privacy & Security > Camera**.
-2. Ensure your terminal app (e.g., Terminal, iTerm, VS Code) has camera access enabled.
+2. Ensure your terminal app (e.g., Terminal, iTerm, VS Code) has camera access
+   enabled.
 3. Restart the app after granting permission.
 
 ---
 
 ### `GEMINI_API_KEY` not found / Authentication Error
+
 **Symptoms**: Backend crashes on startup with "API key not found".
 
 **Solution**:
-1. Make sure your `.env` file is in the root `jarvis_v2` folder (not inside `backend/`).
-2. Verify the format is exactly: `GEMINI_API_KEY=your_key` (no quotes, no spaces).
+
+1. Make sure your `.env` file is in the root `jarvis_v2` folder (not inside
+   `backend/`).
+2. Verify format is exactly: `GEMINI_API_KEY=your_key` (no quotes, no spaces).
 3. Restart the backend after editing the file.
 
 ---
 
 ### WebSocket connection errors (1011)
-**Symptoms**: `websockets.exceptions.ConnectionClosedError: 1011 (internal error)`.
+
+**Symptoms**: `websockets.exceptions.ConnectionClosedError: 1011 (internal
+error)`.
 
 **Solution**:
-This is a server-side issue from the Gemini API. Simply reconnect by clicking the connect button or saying "Hello Jarvis" again. If it persists, check your internet connection or try again later.
 
+This is a server-side issue from the Gemini API. Simply reconnect by clicking
+the connect button or saying "Hello Jarvis" again. If it persists, check your
+internet connection or try again later.
+
+<!-- markdownlint-disable MD033 -->
 </details>
+<!-- markdownlint-enable MD033 -->
 
 ---
 
-## 📸 What It Looks Like
+## 📸 What It Looks Like {#what-it-looks-like}
 
 *Coming soon! Screenshots and demo videos will be added here.*
 
 ---
 
-## 📂 Project Structure
+## 📂 Project Structure {#project-structure}
 
+<!-- markdownlint-disable MD033 -->
 <details>
 <summary>Click to view file tree</summary>
+<!-- markdownlint-enable MD033 -->
 
-```
+```text
 jarvis_v2/
 ├── backend/                    # Python server & AI logic
 │   ├── jarvis.py               # Gemini Live API integration
@@ -414,23 +507,25 @@ jarvis_v2/
 └── README.md                   # You are here!
 ```
 
+<!-- markdownlint-disable MD033 -->
 </details>
+<!-- markdownlint-enable MD033 -->
 
 ---
 
-## ⚠️ Known Limitations
+## ⚠️ Known Limitations {#known-limitations}
 
 | Limitation | Details |
-|------------|---------|
-| **macOS & Windows** | Tested on macOS 14+ and Windows 10/11. Linux is untested. |
+| :--- | :--- |
+| **macOS & Windows** | Tested on macOS 14+ and Windows 10/11. Soon in Linux . |
 | **Camera Required** | Face auth and gesture control need a working webcam. |
-| **Gemini API Quota** | Free tier has rate limits; heavy CAD iteration may hit limits. |
+| **Gemini API Quota** | It has rate limits; heavy CAD usage may hit limits. |
 | **Network Dependency** | Requires internet for Gemini API (no offline mode). |
 | **Single User** | Face auth recognizes one person (the `reference.jpg`). |
 
 ---
 
-## 🤝 Contributing
+## 🤝 Contributing {#contributing}
 
 Contributions are welcome! Here's how:
 
@@ -442,42 +537,45 @@ Contributions are welcome! Here's how:
 
 ### Development Tips
 
-- Run the backend separately (`python backend/server.py`) to see Python logs.
-- Use `npm run dev` without Electron during frontend development (faster reload).
+- Run backend separately (`python backend/server.py`) to see Python logs.
+- Use `npm run dev` without Electron during frontend development.
 - The `projects/` folder contains user data don't commit it to Git.
 
 ---
 
-## 🔒 Security Considerations
+## 🔒 Security Considerations {#security-considerations}
 
 | Aspect | Implementation |
-|--------|----------------|
+| :--- | :--- |
 | **API Keys** | Stored in `.env`, never committed to Git. |
 | **Face Data** | Processed locally, never uploaded. |
 | **Tool Confirmations** | Write/CAD/Web actions can require user approval. |
 | **No Cloud Storage** | All project data stays on your machine. |
 
 > [!WARNING]
-> Never share your `.env` file or `reference.jpg`. These contain sensitive credentials and biometric data.
+> Never share your `.env` file or `reference.jpg`. These contain sensitive
+> credentials and biometric data.
 
 ---
 
-## 🙏 Acknowledgments
+## 🙏 Acknowledgments {#acknowledgments}
 
-- **[Google Gemini](https://deepmind.google/technologies/gemini/)** — Native Audio API for real-time voice
-- **[build123d](https://github.com/gumyr/build123d)** — Modern parametric CAD library
-- **[MediaPipe](https://developers.google.com/mediapipe)** — Hand tracking, gesture recognition, and face authentication
+- **[Google Gemini](https://deepmind.google/technologies/gemini/)** — Native
+  Audio API for real-time voice
+- **[build123d](https://github.com/gumyr/build123d)** — Modern parametric CAD
+  library
+- **[MediaPipe](https://developers.google.com/mediapipe)** — Hand tracking,
+  gesture recognition, and face authentication
 - **[Playwright](https://playwright.dev/)** — Reliable browser automation
 
 ---
 
-## 📄 License
+## 📄 License {#license}
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE)
+file for details.
 
 ---
 
-<p align="center">
-  <strong>Built by Vamsi Indugu</strong><br>
-  <em>Bridging AI, CAD, and Vision in a Single Interface</em>
-</p>
+Built by Vamsi Indugu
+*Bridging AI, CAD, and Vision in a Single Interface*
