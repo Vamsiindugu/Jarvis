@@ -16,24 +16,24 @@ With the power of **Google's Gemini 2.5**, I possess a voice that feels human, e
 
 ---
 
-## 📑 Table of Contents {#table-of-contents}
+## 📑 Table of Contents
 
-- [What I Can Do For You](#what-i-can-do-for-you)
-- [How to Interact](#how-to-interact)
-- [Architecture Overview](#architecture-overview)
-- [TL;DR Quick Start](#tldr-quick-start)
-- [Installation Guide](#installation-guide)
-- [Configuration](#configuration)
-- [3D Printer Setup](#3d-printer-setup)
-- [Gemini API Key Setup](#gemini-api-key-setup)
-- [Running JARVIS](#running-jarvis)
-- [First Flight Checklist](#first-flight-checklist)
-- [Commands and Tools Reference](#commands-and-tools-reference)
-- [Troubleshooting FAQ](#troubleshooting-faq)
+- [✨ What I Can Do For You](#what-i-can-do-for-you)
+- [🎮 How to Interact](#how-to-interact)
+- [🏗️ Architecture Overview](#architecture-overview)
+- [⚡ TL;DR Quick Start](#tldr-quick-start)
+- [🛠️ Installation Guide](#installation-guide)
+- [⚙️ Configuration](#configuration)
+- [🖨️ 3D Printer Setup](#3d-printer-setup)
+- [🔑 Gemini API Key Setup](#gemini-api-key-setup)
+- [🚀 Running JARVIS](#running-jarvis)
+- [✅ First Flight Checklist](#first-flight-checklist)
+- [▶️ Commands and Tools Reference](#commands-and-tools-reference)
+- [❓ Troubleshooting FAQ](#troubleshooting-faq)
 
 ---
 
-## ✨ What I Can Do For You {#what-i-can-do-for-you}
+## What I Can Do For You
 
 I am more than lines of code. Here is my skillset:
 
@@ -69,7 +69,7 @@ Need to find a price, research a topic, or buy a cable? I can take control of a 
 
 ---
 
-## 🎮 How to Interact {#how-to-interact}
+## How to Interact
 
 ### Voice
 
@@ -87,7 +87,7 @@ Raise your hand. I'll show you a skeleton overlay. Pinch your index finger and t
 
 ---
 
-## 🏗️ Architecture Overview {#architecture-overview}
+## Architecture Overview
 
 ```mermaid
 graph TB
@@ -124,7 +124,7 @@ graph TB
 
 ---
 
-## ⚡ TL;DR Quick Start {#tldr-quick-start}
+## TL;DR Quick Start
 
 <!-- markdownlint-disable MD033 -->
 <details>
@@ -157,7 +157,7 @@ conda activate jarvis_v2 && npm run dev
 
 ---
 
-## 🛠️ Installation Guide {#installation-guide}
+## Installation Guide
 
 ### 🆕 Absolute Beginner Setup (Start Here)
 
@@ -251,7 +251,7 @@ To use the secure voice features, JARVIS needs to know what you look like.
 
 ---
 
-## ⚙️ Configuration {#configuration}
+## Configuration
 
 The system creates a `settings.json` file on first run. You can modify this to change behavior:
 
@@ -265,7 +265,7 @@ The system creates a `settings.json` file on first run. You can modify this to c
 
 ---
 
-## 🖨️ 3D Printer Setup {#3d-printer-setup}
+## 3D Printer Setup
 
 JARVIS V2 can slice STL files and send them directly to your 3D printer.
 
@@ -292,7 +292,7 @@ JARVIS uses **OrcaSlicer** (recommended) or PrusaSlicer to generate G-code.
 
 ---
 
-## 🔑 Gemini API Key Setup {#gemini-api-key-setup}
+## Gemini API Key Setup
 
 JARVIS uses Google's Gemini API for voice and intelligence. You need a free API key.
 
@@ -312,7 +312,7 @@ JARVIS uses Google's Gemini API for voice and intelligence. You need a free API 
 
 ---
 
-## 🚀 Running JARVIS {#running-jarvis}
+## Running JARVIS
 
 You have two options to run the app. Ensure your `jarvis_v2` environment is active!
 
@@ -350,7 +350,7 @@ npm run dev
 
 ---
 
-## ✅ First Flight Checklist {#first-flight-checklist}
+## First Flight Checklist
 
 - [ ] **Voice Check**: Say "Hello Jarvis". He should respond.
 - [ ] **Vision Check**: Look at the camera. If Face Auth is on, the lock screen should unlock.
@@ -360,7 +360,7 @@ npm run dev
 
 ---
 
-## ▶️ Commands and Tools Reference {#commands-and-tools-reference}
+## Commands and Tools Reference
 
 ### Voice Commands
 
@@ -389,7 +389,7 @@ npm run dev
 
 ---
 
-## ❓ Troubleshooting FAQ {#troubleshooting-faq}
+## Troubleshooting FAQ
 
 <!-- markdownlint-disable MD033 -->
 <details>
@@ -434,13 +434,13 @@ This is a server-side issue from the Gemini API. Simply reconnect by clicking th
 
 ---
 
-## 📸 What It Looks Like
+## What It Looks Like
 
 *Coming soon! Screenshots and demo videos will be added here.*
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 <!-- markdownlint-disable MD033 -->
 <details>
@@ -479,7 +479,7 @@ jarvis_v2/
 
 ---
 
-## ⚠️ Known Limitations
+## Known Limitations
 
 | Limitation | Details |
 | :--- | :--- |
@@ -491,7 +491,7 @@ jarvis_v2/
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Here's how:
 
@@ -509,7 +509,7 @@ Contributions are welcome! Here's how:
 
 ---
 
-## 🔒 Security Considerations
+## Security Considerations
 
 | Aspect | Implementation |
 | :--- | :--- |
@@ -523,7 +523,7 @@ Contributions are welcome! Here's how:
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **[Google Gemini](https://deepmind.google/technologies/gemini/)** — Native Audio API for real-time voice
 - **[build123d](https://github.com/gumyr/build123d)** — Modern parametric CAD library
@@ -532,7 +532,7 @@ Contributions are welcome! Here's how:
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
 
