@@ -1,3 +1,4 @@
+# File: authenticator.py - Purpose: This file handles Authenticator functionality.
 import mediapipe as mp
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision

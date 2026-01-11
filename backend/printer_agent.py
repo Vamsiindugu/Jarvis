@@ -1,3 +1,4 @@
+# File: printer_agent.py - Purpose: This file handles Printer Agent functionality.
 """
 PrinterAgent - Handles 3D printer discovery, slicing, and print job submission.
 

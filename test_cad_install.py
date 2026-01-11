@@ -1,3 +1,4 @@
+# File: test_cad_install.py - Purpose: This file handles Test Cad Install functionality.
 import sys
 print(f"Python: {sys.version}")
 try:

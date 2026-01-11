@@ -1,3 +1,4 @@
+# File: test_face_rec.py - Purpose: This file handles Test Face Rec functionality.
 import face_recognition
 import numpy as np
 import cv2

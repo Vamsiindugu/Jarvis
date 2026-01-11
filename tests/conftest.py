@@ -1,3 +1,4 @@
+# File: conftest.py - Purpose: This file handles Conftest functionality.
 """
 Pytest configuration and shared fixtures for jarvis_v2 tests.
 """

@@ -1,3 +1,4 @@
+# File: server.py - Purpose: This file handles Server functionality.
 import sys
 import asyncio
 

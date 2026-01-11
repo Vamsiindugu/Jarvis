@@ -1,3 +1,4 @@
+# File: debug_printer_connection.py - Purpose: This file handles Debug Printer Connection functionality.
 import asyncio
 import aiohttp
 import sys

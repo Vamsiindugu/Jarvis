@@ -1,3 +1,4 @@
+# File: verify_cad.py - Purpose: This file handles Verify Cad functionality.
 import asyncio
 import os
 import sys

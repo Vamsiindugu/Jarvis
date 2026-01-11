@@ -1,3 +1,4 @@
+# File: temp_cad_gen.py - Purpose: This file handles Temp Cad Gen functionality.
 # A build123d script to create a 2-inch diameter sphere.
 
 from build123d import *

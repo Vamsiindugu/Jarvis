@@ -1,3 +1,4 @@
+// File: KasaWindow.jsx - Purpose: This file handles Kasawindow functionality.
 import React, { useState, useEffect } from 'react';
 import { X, RefreshCw, Power, Sun, Palette } from 'lucide-react';
 

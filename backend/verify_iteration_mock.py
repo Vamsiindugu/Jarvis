@@ -1,3 +1,4 @@
+# File: verify_iteration_mock.py - Purpose: This file handles Verify Iteration Mock functionality.
 
 import os
 import sys

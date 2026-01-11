@@ -1,3 +1,4 @@
+// File: ConfirmationPopup.jsx - Purpose: This file handles Confirmationpopup functionality.
 import React from 'react';
 
 const ConfirmationPopup = ({ request, onConfirm, onDeny }) => {

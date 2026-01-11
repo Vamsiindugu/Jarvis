@@ -1,3 +1,4 @@
+# File: web_agent.py - Purpose: This file handles Web Agent functionality.
 import os
 import time
 import asyncio

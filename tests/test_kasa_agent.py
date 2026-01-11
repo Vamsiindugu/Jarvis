@@ -1,3 +1,4 @@
+# File: test_kasa_agent.py - Purpose: This file handles Test Kasa Agent functionality.
 """
 Tests for Kasa Smart Home Agent.
 Uses REAL devices from settings.json.

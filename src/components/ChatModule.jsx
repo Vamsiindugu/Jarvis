@@ -1,3 +1,4 @@
+// File: ChatModule.jsx - Purpose: This file handles Chatmodule functionality.
 import React, { useEffect, useRef } from 'react';
 
 const ChatModule = ({

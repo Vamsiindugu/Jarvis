@@ -1,3 +1,4 @@
+// File: MemoryPrompt.jsx - Purpose: This file handles Memoryprompt functionality.
 import React, { useState, useEffect } from 'react';
 import { Save, X, Power } from 'lucide-react';
 

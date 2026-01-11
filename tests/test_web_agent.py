@@ -1,3 +1,4 @@
+# File: test_web_agent.py - Purpose: This file handles Test Web Agent functionality.
 """
 Tests for Web Automation Agent.
 """

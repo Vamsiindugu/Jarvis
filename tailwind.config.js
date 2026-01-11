@@ -1,3 +1,4 @@
+// File: tailwind.config.js - Purpose: This file handles Tailwind.Config functionality.
 /** @type {import('tailwindcss').Config} */
 module.exports = {
     content: [

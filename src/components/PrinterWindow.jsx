@@ -1,3 +1,4 @@
+// File: PrinterWindow.jsx - Purpose: This file handles Printerwindow functionality.
 import React, { useState, useEffect } from 'react';
 import { X, RefreshCw, Printer, Thermometer, Clock, FileText, CheckCircle, AlertTriangle, ExternalLink } from 'lucide-react';
 

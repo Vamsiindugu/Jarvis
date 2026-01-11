@@ -1,3 +1,4 @@
+// File: App.jsx - Purpose: This file handles App functionality.
 import React, { useEffect, useState, useRef } from 'react';
 import io from 'socket.io-client';
 

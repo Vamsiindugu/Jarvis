@@ -1,3 +1,4 @@
+# File: test_printer_agent.py - Purpose: This file handles Test Printer Agent functionality.
 """
 Tests for 3D Printer Agent.
 Discovery only - no actual print jobs.

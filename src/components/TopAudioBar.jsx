@@ -1,3 +1,4 @@
+// File: TopAudioBar.jsx - Purpose: This file handles Topaudiobar functionality.
 import React, { useEffect, useRef } from 'react';
 
 const TopAudioBar = ({ audioData }) => {

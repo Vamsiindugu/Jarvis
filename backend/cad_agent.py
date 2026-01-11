@@ -1,3 +1,4 @@
+# File: cad_agent.py - Purpose: This file handles Cad Agent functionality.
 import os
 import json
 import asyncio

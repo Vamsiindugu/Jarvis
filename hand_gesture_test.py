@@ -1,3 +1,4 @@
+# File: hand_gesture_test.py - Purpose: This file handles Hand Gesture Test functionality.
 import cv2
 import mediapipe as mp
 import math

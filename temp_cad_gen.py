@@ -1,3 +1,4 @@
+# File: temp_cad_gen.py - Purpose: This file handles Temp Cad Gen functionality.
 from build123d import *
 import numpy as np
 

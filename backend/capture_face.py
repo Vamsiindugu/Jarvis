@@ -1,3 +1,4 @@
+# File: capture_face.py - Purpose: This file handles Capture Face functionality.
 import cv2
 import os
 

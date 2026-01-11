@@ -1,3 +1,4 @@
+// File: main.js - Purpose: This file handles Main functionality.
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');

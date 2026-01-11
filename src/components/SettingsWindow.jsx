@@ -1,3 +1,4 @@
+// File: SettingsWindow.jsx - Purpose: This file handles Settingswindow functionality.
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 

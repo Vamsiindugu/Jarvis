@@ -1,3 +1,4 @@
+# File: tools.py - Purpose: This file handles Tools functionality.
 generate_cad_prototype_tool = {
     "name": "generate_cad_prototype",
     "description": "Generates a 3D wireframe prototype based on a user's description. Use this when the user asks to 'visualize', 'prototype', 'create a wireframe', or 'design' something in 3D.",

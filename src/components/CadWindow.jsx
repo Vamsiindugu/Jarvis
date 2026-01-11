@@ -1,3 +1,4 @@
+// File: CadWindow.jsx - Purpose: This file handles Cadwindow functionality.
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Canvas, useLoader, useFrame } from '@react-three/fiber';
 import { OrbitControls, Center, Stage } from '@react-three/drei';

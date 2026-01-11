@@ -1,3 +1,4 @@
+# File: check_cuda.py - Purpose: This file handles Check Cuda functionality.
 import cv2
 try:
     count = cv2.cuda.getCudaEnabledDeviceCount()

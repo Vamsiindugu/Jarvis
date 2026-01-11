@@ -1,3 +1,4 @@
+// File: AuthLock.jsx - Purpose: This file handles Authlock functionality.
 import React, { useEffect, useState } from 'react';
 import { Lock, Unlock, User } from 'lucide-react';
 

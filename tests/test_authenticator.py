@@ -1,3 +1,4 @@
+# File: test_authenticator.py - Purpose: This file handles Test Authenticator functionality.
 """
 Tests for Face Authentication.
 """

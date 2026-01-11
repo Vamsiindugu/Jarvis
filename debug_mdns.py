@@ -1,3 +1,4 @@
+# File: debug_mdns.py - Purpose: This file handles Debug Mdns functionality.
 import asyncio
 from zeroconf import Zeroconf, ServiceBrowser, ServiceListener
 

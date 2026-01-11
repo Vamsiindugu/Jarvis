@@ -1,3 +1,4 @@
+// File: vite.config.js - Purpose: This file handles Vite.Config functionality.
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 

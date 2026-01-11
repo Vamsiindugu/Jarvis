@@ -1,3 +1,4 @@
+// File: ToolsModule.jsx - Purpose: This file handles Toolsmodule functionality.
 import React from 'react';
 import { Mic, MicOff, Settings, Power, Video, VideoOff, Hand, Lightbulb, Printer, Globe, Box } from 'lucide-react';
 

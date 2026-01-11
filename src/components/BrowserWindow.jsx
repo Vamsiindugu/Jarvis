@@ -1,3 +1,4 @@
+// File: BrowserWindow.jsx - Purpose: This file handles Browserwindow functionality.
 import React, { useEffect, useRef } from 'react';
 import { Globe, X } from 'lucide-react';
 

@@ -1,3 +1,4 @@
+# File: jarvis.py - Purpose: This file handles Jarvis functionality.
 import asyncio
 import base64
 import io

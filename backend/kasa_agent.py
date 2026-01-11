@@ -1,3 +1,4 @@
+# File: kasa_agent.py - Purpose: This file handles Kasa Agent functionality.
 import asyncio
 from kasa import Discover, SmartDevice, SmartBulb, SmartPlug
 

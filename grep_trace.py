@@ -1,3 +1,4 @@
+# File: grep_trace.py - Purpose: This file handles Grep Trace functionality.
 
 try:
     lines = []

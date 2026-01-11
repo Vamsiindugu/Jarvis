@@ -1,3 +1,4 @@
+# File: project_manager.py - Purpose: This file handles Project Manager functionality.
 import os
 import json
 import shutil

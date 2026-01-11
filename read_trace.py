@@ -1,3 +1,4 @@
+# File: read_trace.py - Purpose: This file handles Read Trace functionality.
 
 try:
     with open("trace.txt", "r", encoding="utf-16le") as f:

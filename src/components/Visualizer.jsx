@@ -1,3 +1,4 @@
+// File: Visualizer.jsx - Purpose: This file handles Visualizer functionality.
 import React, { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 
